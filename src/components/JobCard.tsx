@@ -26,7 +26,7 @@ export function JobCard({
         <h3 className="font-medium text-sm leading-tight group-hover:text-primary transition-colors line-clamp-2">
           {job.title}
         </h3>
-        {job.remote && <Badge variant="secondary" className="shrink-0 text-[10px]">Remote</Badge>}
+        {job.is_remote && <Badge variant="secondary" className="shrink-0 text-[10px]">Remote</Badge>}
       </div>
       <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
         <Building2 className="size-3" /> {job.company}
@@ -36,9 +36,9 @@ export function JobCard({
           <MapPin className="size-3" /> {job.location}
         </div>
       )}
-      {job.salary && (
+      {(job.salary_min || job.salary_max) && (
         <div className="flex items-center gap-1 text-xs text-primary mt-2">
-          <DollarSign className="size-3" /> {job.salary}
+          <DollarSign className="size-3" /> {job.salary_min} - {job.salary_max}
         </div>
       )}
     </button>

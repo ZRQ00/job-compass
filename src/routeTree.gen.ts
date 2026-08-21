@@ -10,12 +10,20 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TrackerRouteImport } from './routes/tracker'
+import { Route as ResumeRouteImport } from './routes/resume'
 import { Route as DiscoverRouteImport } from './routes/discover'
+import { Route as BrowseRouteImport } from './routes/browse'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as TrackerNewRouteImport } from './routes/tracker_.new'
 
 const TrackerRoute = TrackerRouteImport.update({
   id: '/tracker',
   path: '/tracker',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ResumeRoute = ResumeRouteImport.update({
+  id: '/resume',
+  path: '/resume',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DiscoverRoute = DiscoverRouteImport.update({
@@ -23,40 +31,75 @@ const DiscoverRoute = DiscoverRouteImport.update({
   path: '/discover',
   getParentRoute: () => rootRouteImport,
 } as any)
+const BrowseRoute = BrowseRouteImport.update({
+  id: '/browse',
+  path: '/browse',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const TrackerNewRoute = TrackerNewRouteImport.update({
+  id: '/tracker_/new',
+  path: '/tracker/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/browse': typeof BrowseRoute
   '/discover': typeof DiscoverRoute
+  '/resume': typeof ResumeRoute
   '/tracker': typeof TrackerRoute
+  '/tracker/new': typeof TrackerNewRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/browse': typeof BrowseRoute
   '/discover': typeof DiscoverRoute
+  '/resume': typeof ResumeRoute
   '/tracker': typeof TrackerRoute
+  '/tracker/new': typeof TrackerNewRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/browse': typeof BrowseRoute
   '/discover': typeof DiscoverRoute
+  '/resume': typeof ResumeRoute
   '/tracker': typeof TrackerRoute
+  '/tracker_/new': typeof TrackerNewRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/discover' | '/tracker'
+  fullPaths:
+    | '/'
+    | '/browse'
+    | '/discover'
+    | '/resume'
+    | '/tracker'
+    | '/tracker/new'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/discover' | '/tracker'
-  id: '__root__' | '/' | '/discover' | '/tracker'
+  to: '/' | '/browse' | '/discover' | '/resume' | '/tracker' | '/tracker/new'
+  id:
+    | '__root__'
+    | '/'
+    | '/browse'
+    | '/discover'
+    | '/resume'
+    | '/tracker'
+    | '/tracker_/new'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  BrowseRoute: typeof BrowseRoute
   DiscoverRoute: typeof DiscoverRoute
+  ResumeRoute: typeof ResumeRoute
   TrackerRoute: typeof TrackerRoute
+  TrackerNewRoute: typeof TrackerNewRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -68,11 +111,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TrackerRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/resume': {
+      id: '/resume'
+      path: '/resume'
+      fullPath: '/resume'
+      preLoaderRoute: typeof ResumeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/discover': {
       id: '/discover'
       path: '/discover'
       fullPath: '/discover'
       preLoaderRoute: typeof DiscoverRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/browse': {
+      id: '/browse'
+      path: '/browse'
+      fullPath: '/browse'
+      preLoaderRoute: typeof BrowseRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -82,14 +139,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/tracker_/new': {
+      id: '/tracker_/new'
+      path: '/tracker/new'
+      fullPath: '/tracker/new'
+      preLoaderRoute: typeof TrackerNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  BrowseRoute: BrowseRoute,
   DiscoverRoute: DiscoverRoute,
+  ResumeRoute: ResumeRoute,
   TrackerRoute: TrackerRoute,
+  TrackerNewRoute: TrackerNewRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}

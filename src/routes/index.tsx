@@ -1,11 +1,15 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { Briefcase, Send, Calendar, Trophy, ArrowRight, AlertCircle } from "lucide-react";
+import {
+  Briefcase, Send, Calendar, Trophy, ArrowRight,
+  AlertCircle,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { SchedulerCard } from "@/components/SchedulerCard";
 
 export const Route = createFileRoute("/")({
-  head: () => ({ meta: [{ title: "Dashboard — JobTrail" }] }),
+  head: () => ({ meta: [{ title: "Dashboard — Job Compass" }] }),
   component: Dashboard,
 });
 
@@ -19,8 +23,8 @@ function Dashboard() {
   const cards = [
     { label: "Total Jobs", value: data?.total, icon: Briefcase, color: "text-info" },
     { label: "Applied", value: data?.applied, icon: Send, color: "text-primary" },
-    { label: "Interviews", value: data?.interviews, icon: Calendar, color: "text-warning" },
-    { label: "Offers", value: data?.offers, icon: Trophy, color: "text-success" },
+    { label: "Interviews", value: data?.interview, icon: Calendar, color: "text-warning" },
+    { label: "Offers", value: data?.offer, icon: Trophy, color: "text-success" },
   ];
 
   return (
@@ -31,14 +35,19 @@ function Dashboard() {
           <p className="text-muted-foreground mt-1">Your job search at a glance.</p>
         </div>
         <div className="flex gap-2">
-          <Link to="/discover"><Button variant="secondary">Discover jobs <ArrowRight className="size-4 ml-1" /></Button></Link>
-          <Link to="/tracker"><Button>Open tracker <ArrowRight className="size-4 ml-1" /></Button></Link>
+          <Link to="/discover">
+            <Button variant="secondary">Discover jobs <ArrowRight className="size-4 ml-1" /></Button>
+          </Link>
+          <Link to="/tracker">
+            <Button>Open tracker <ArrowRight className="size-4 ml-1" /></Button>
+          </Link>
         </div>
       </div>
 
       {error && (
         <div className="flex items-center gap-2 p-4 rounded-lg bg-destructive/10 border border-destructive/30 text-destructive text-sm">
-          <AlertCircle className="size-4" /> Couldn't reach the API at localhost:8090. Make sure it's running.
+          <AlertCircle className="size-4 shrink-0" />
+          Couldn't reach the API at localhost:9500. Make sure the backend is running.
         </div>
       )}
 
@@ -56,7 +65,7 @@ function Dashboard() {
         ))}
       </div>
 
-      <div className="grid md:grid-cols-2 gap-4">
+      <div className="grid md:grid-cols-3 gap-4">
         <Link to="/discover" className="group bg-card border border-border rounded-xl p-6 hover:border-primary/40 transition-colors">
           <h3 className="font-display text-lg font-semibold mb-1">Find new opportunities</h3>
           <p className="text-sm text-muted-foreground">Scrape job boards for matching roles by keyword, salary, and remote.</p>
@@ -65,6 +74,7 @@ function Dashboard() {
           <h3 className="font-display text-lg font-semibold mb-1">Move applications forward</h3>
           <p className="text-sm text-muted-foreground">Drag jobs across the kanban board as you progress.</p>
         </Link>
+        <SchedulerCard />
       </div>
     </div>
   );
