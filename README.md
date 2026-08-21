@@ -102,51 +102,6 @@ API docs at: **http://localhost:9500/docs**
 
 ---
 
-## Lovable.dev Integration
-
-When building your frontend on Lovable, point all API calls to:
-```
-http://localhost:9500
-```
-
-CORS is enabled for all origins so Lovable's preview will connect without issues.
-
-### Suggested pages for Lovable:
-
-1. **Dashboard** — stats cards (total, applied, interview, offer) + recent jobs list
-2. **Discover** — search form to trigger scrape, results table with quick-add
-3. **Tracker** — kanban board with columns: Found → Applied → Interview → Offer
-4. **Job Detail** — full JD view with status update, notes, fit score
-5. **Export** — buttons to download CSV or Excel
-
-### Example fetch call:
-```javascript
-// Get all remote jobs above $150k
-const res = await fetch('http://localhost:8000/jobs?remote_only=true&salary_min=150000')
-const jobs = await res.json()
-
-// Update a job status
-await fetch(`http://localhost:8000/jobs/${id}`, {
-  method: 'PATCH',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ status: 'applied', notes: 'Applied via LinkedIn' })
-})
-
-// Trigger a scrape
-await fetch('http://localhost:8000/scrape', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    search_term: 'AI Engineer',
-    remote_only: true,
-    salary_min: 150000,
-    results_wanted: 50
-  })
-})
-```
-
----
-
 ## Database
 
 SQLite file stored at `backend/jobtracker.db`. No setup required — created automatically on first run.

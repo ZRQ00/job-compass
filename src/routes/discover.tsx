@@ -18,6 +18,7 @@ export const Route = createFileRoute("/discover")({
 
 function Discover() {
   const [search, setSearch] = useState("");
+  const [location, setLocation] = useState("United States");
   const [salaryMin, setSalaryMin] = useState("");
   const [remoteOnly, setRemoteOnly] = useState(false);
 
@@ -29,6 +30,7 @@ function Discover() {
     start(
       api.scrapeStreamUrl({
         search_term: search,
+        location: location.trim() || undefined,
         salary_min: salaryMin ? Number(salaryMin) : undefined,
         remote_only: remoteOnly,
         results_wanted: 50,
@@ -55,7 +57,7 @@ function Discover() {
 
       <form
         onSubmit={(e) => { e.preventDefault(); runScrape(); }}
-        className="bg-card border border-border rounded-xl p-6 grid gap-4 md:grid-cols-[1fr_180px_auto_auto] md:items-end"
+        className="bg-card border border-border rounded-xl p-6 grid gap-4 md:grid-cols-[1fr_1fr_160px_auto_auto] md:items-end"
       >
         <div className="space-y-2">
           <Label htmlFor="search">Search term</Label>
@@ -64,6 +66,15 @@ function Discover() {
             placeholder="e.g. AI Engineer Python"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="location">Location</Label>
+          <Input
+            id="location"
+            placeholder="e.g. United States, Remote, New York NY"
+            value={location}
+            onChange={(e) => setLocation(e.target.value)}
           />
         </div>
         <div className="space-y-2">

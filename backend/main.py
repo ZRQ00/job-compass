@@ -19,7 +19,7 @@ from scheduler import start_scheduler, stop_scheduler, get_scheduler_status, loa
 
 app = FastAPI(
     title="JobTracker API",
-    description="Job discovery and tracking API for Riky's job search",
+    description="Job discovery and tracking API",
     version="1.0.0"
 )
 
@@ -75,6 +75,7 @@ def scrape_stream(
 ):
     """Stream scrape progress live via SSE — site by site, job by job."""
     from scraper import stream_scrape_and_store
+    from database import SessionLocal
 
     request = ScrapeRequest(
         search_term=search_term,
@@ -87,8 +88,16 @@ def scrape_stream(
     )
 
     def event_stream():
-        for event in stream_scrape_and_store(request, db):
-            yield f"data: {json.dumps(event)}\n\n"
+        # Same reasoning as reason_job_stream below: the `db` session from
+        # Depends(get_db) can already be closed by the time this generator runs
+        # (StreamingResponse streams after the route function returns), so use a
+        # session scoped to the generator's own lifetime instead.
+        stream_db = SessionLocal()
+        try:
+            for event in stream_scrape_and_store(request, stream_db):
+                yield f"data: {json.dumps(event)}\n\n"
+        finally:
+            stream_db.close()
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
@@ -267,6 +276,7 @@ def reason_job_stream(job_id: int, db: Session = Depends(get_db)):
     """Stream the reasoning model's thinking trace and final answer live via SSE."""
     from reasoning import stream_job_reasoning, is_model_available, REASONING_MODEL, start_cancel_token, clear_cancel_token
     from embeddings import load_resume, is_ollama_running
+    from database import SessionLocal
 
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
@@ -281,17 +291,30 @@ def reason_job_stream(job_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="No resume found. Upload one via POST /resume first.")
 
     cancel_event = start_cancel_token(job_id)
+    # Grab plain values now, before the request-scoped `db` session closes.
+    job_title, job_company, job_description = job.title, job.company, job.description or ""
 
     def event_stream():
+        # IMPORTANT: don't use the `db` session captured from Depends(get_db) in here.
+        # StreamingResponse only runs this generator AFTER the route function returns,
+        # by which point FastAPI has already closed that request-scoped session. Calling
+        # db.commit() on it doesn't error — it silently commits an empty transaction,
+        # since `job` is no longer tracked by an active session — so the reasoning
+        # result streams to the client fine but never actually gets saved. Open a
+        # session that lives for the duration of this generator instead.
+        stream_db = SessionLocal()
         try:
-            for event in stream_job_reasoning(resume_text, job.title, job.company, job.description or "", cancel_event=cancel_event):
+            for event in stream_job_reasoning(resume_text, job_title, job_company, job_description, cancel_event=cancel_event):
                 if event["type"] == "done":
-                    job.reasoning_score = event["score"]
-                    job.fit_reasoning = event["reasoning"]
-                    job.updated_at = datetime.utcnow()
-                    db.commit()
+                    stream_job = stream_db.query(Job).filter(Job.id == job_id).first()
+                    if stream_job:
+                        stream_job.reasoning_score = event["score"]
+                        stream_job.fit_reasoning = event["reasoning"]
+                        stream_job.updated_at = datetime.utcnow()
+                        stream_db.commit()
                 yield f"data: {json.dumps(event)}\n\n"
         finally:
+            stream_db.close()
             clear_cancel_token(job_id)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
@@ -530,6 +553,71 @@ def trigger_now(background_tasks: BackgroundTasks):
     """Trigger all scheduled searches immediately without waiting for next interval."""
     background_tasks.add_task(run_scheduled_scrapes)
     return {"message": "Scrape triggered in background"}
+
+
+@app.get("/scheduler/run/stream", tags=["Scheduler"])
+def trigger_now_stream(db: Session = Depends(get_db)):
+    """
+    Same as POST /scheduler/run, but runs inline and streams progress via SSE
+    across all configured searches. Used by the "Run now" button.
+    """
+    from scraper import stream_scrape_and_store
+    from database import SessionLocal
+
+    config = load_config()
+    searches = config.get("searches", [])
+
+    def event_stream():
+        # Same reasoning as reason_job_stream / scrape_stream: don't use the
+        # request-scoped `db` from Depends(get_db) in here, it can already be
+        # closed by the time this generator actually runs.
+        stream_db = SessionLocal()
+        total_found = 0
+        total_added = 0
+        results = []
+
+        for search in searches:
+            search_term = search.get("search_term")
+            yield f"data: {json.dumps({'type': 'search_start', 'search_term': search_term})}\n\n"
+
+            try:
+                req = ScrapeRequest(**search)
+                found = added = duplicate = 0
+                for event in stream_scrape_and_store(req, stream_db):
+                    if event["type"] == "done":
+                        # Terminal event for a single search — the frontend treats "done"
+                        # as end-of-stream, so don't forward it here; just capture the counts
+                        # and keep going to the next search.
+                        found = event["jobs_found"]
+                        added = event["jobs_added"]
+                        duplicate = event["jobs_duplicate"]
+                        continue
+                    yield f"data: {json.dumps(event)}\n\n"
+
+                total_found += found
+                total_added += added
+                results.append({
+                    "search_term": search_term,
+                    "jobs_found": found,
+                    "jobs_added": added,
+                    "jobs_duplicate": duplicate,
+                })
+            except Exception as e:
+                results.append({"search_term": search_term, "error": str(e)})
+                yield f"data: {json.dumps({'type': 'status', 'text': f'{search_term} failed: {e}'})}\n\n"
+
+        config["last_run"] = datetime.utcnow().isoformat()
+        config["last_run_result"] = {
+            "total_found": total_found,
+            "total_added": total_added,
+            "searches": results,
+        }
+        save_config(config)
+
+        stream_db.close()
+        yield f"data: {json.dumps({'type': 'all_done', 'total_found': total_found, 'total_added': total_added})}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @app.patch("/scheduler", tags=["Scheduler"])

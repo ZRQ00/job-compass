@@ -9,7 +9,7 @@ import socket
 import urllib.request
 import urllib.error
 
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://100.81.99.54:11434")
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 
 
 def post(path: str, payload: dict, timeout: int = 60) -> dict:

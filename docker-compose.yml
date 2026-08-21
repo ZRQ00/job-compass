@@ -1,0 +1,30 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    ports:
+      - "9500:9500"
+    volumes:
+      - ./backend:/app
+    environment:
+      # Your Ollama instance (reasoning.py / embeddings.py). Override in a
+      # .env file next to this compose file if your Ollama lives elsewhere.
+      - OLLAMA_URL=${OLLAMA_URL:-http://100.81.99.54:11434}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9500/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - .:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    restart: unless-stopped

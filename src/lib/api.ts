@@ -48,6 +48,7 @@ export interface Stats {
 
 export interface ScrapeParams {
   search_term: string;
+  location?: string;
   salary_min?: number;
   remote_only?: boolean;
   results_wanted?: number;
@@ -136,6 +137,7 @@ export const api = {
   scrapeStreamUrl: (data: ScrapeParams) => {
     const q = new URLSearchParams();
     q.set("search_term", data.search_term);
+    if (data.location) q.set("location", data.location);
     if (data.salary_min !== undefined) q.set("salary_min", String(data.salary_min));
     if (data.remote_only !== undefined) q.set("remote_only", String(data.remote_only));
     if (data.results_wanted !== undefined) q.set("results_wanted", String(data.results_wanted));

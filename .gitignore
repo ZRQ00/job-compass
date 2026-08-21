@@ -31,3 +31,11 @@ dist-ssr
 *.sln
 *.sw?
 venv
+backend/jobtracker.db
+backend/resume.txt
+backend/resume_embedding.json
+backend/scheduler_config.json
+backend/blacklist.json
+backend/__pycache__/
+*.pyc
+.lovable/
