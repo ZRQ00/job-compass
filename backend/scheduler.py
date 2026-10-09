@@ -1,7 +1,8 @@
 """
 Auto-scrape scheduler.
 Runs configured searches every 6 hours in the background.
-Also runs a daily cleanup of stale 'found' jobs.
+Also runs a daily cleanup of stale 'found' jobs, and a daily archive pass
+that marks stale 'found' jobs as 'archived' instead of deleting them.
 Search configs are stored in scheduler_config.json next to this file.
 """
 
@@ -24,6 +25,10 @@ DEFAULT_CONFIG = {
     "cleanup_hour": 0,
     "cleanup_minute": 5,
     "cleanup_days": 90,
+    "archive_enabled": True,
+    "archive_hour": 0,
+    "archive_minute": 10,
+    "archive_days": 30,
     "searches": [
         {
             "search_term": "AI Engineer",
@@ -46,6 +51,8 @@ DEFAULT_CONFIG = {
     "last_run_result": None,
     "last_cleanup": None,
     "last_cleanup_result": None,
+    "last_archive": None,
+    "last_archive_result": None,
 }
 
 
@@ -146,6 +153,40 @@ def run_daily_cleanup():
     save_config(config)
 
 
+def run_daily_archive():
+    """Archive stale 'found' jobs. Called by the scheduler once a day.
+
+    Runs a few minutes after run_daily_cleanup by default (see archive_minute
+    in DEFAULT_CONFIG) so the two jobs don't hit the DB at the exact same
+    moment. This only flips job.status to 'archived' — it never deletes rows,
+    so it's safe to run with a shorter `days` window than cleanup.
+    """
+    from database import SessionLocal
+    from cleanup import archive_stale_found_jobs
+
+    config = load_config()
+    if not config.get("archive_enabled", True):
+        logger.info("Daily archive is disabled, skipping run")
+        return
+
+    days = config.get("archive_days", 30)
+    logger.info(f"Daily archive starting at {datetime.utcnow().isoformat()} (days={days})")
+
+    db = SessionLocal()
+    try:
+        result = archive_stale_found_jobs(db, days=days)
+        logger.info(f"Daily archive done. Archived {result['archived']} stale jobs.")
+    except Exception as e:
+        logger.error(f"Daily archive failed: {e}")
+        result = {"error": str(e)}
+    finally:
+        db.close()
+
+    config["last_archive"] = datetime.utcnow().isoformat()
+    config["last_archive_result"] = result
+    save_config(config)
+
+
 # Global scheduler instance
 _scheduler = BackgroundScheduler(timezone="UTC")
 
@@ -182,6 +223,21 @@ def start_scheduler():
     else:
         logger.info("Daily cleanup disabled in config, not scheduling")
 
+    if config.get("archive_enabled", True):
+        hour = config.get("archive_hour", 0)
+        minute = config.get("archive_minute", 10)
+        _scheduler.add_job(
+            run_daily_archive,
+            trigger=CronTrigger(hour=hour, minute=minute),
+            id="daily_archive",
+            name="Daily Archive",
+            replace_existing=True,
+            misfire_grace_time=3600,  # 1 hour grace — fine for a once-a-day job
+        )
+        logger.info(f"Daily archive job added — runs at {hour:02d}:{minute:02d} UTC")
+    else:
+        logger.info("Daily archive disabled in config, not scheduling")
+
     if not _scheduler.running:
         _scheduler.start()
 
@@ -196,6 +252,7 @@ def get_scheduler_status() -> dict:
     config = load_config()
     scrape_job = _scheduler.get_job("auto_scrape") if _scheduler.running else None
     cleanup_job = _scheduler.get_job("daily_cleanup") if _scheduler.running else None
+    archive_job = _scheduler.get_job("daily_archive") if _scheduler.running else None
     return {
         "running": _scheduler.running,
         "enabled": config.get("enabled", True),
@@ -209,4 +266,9 @@ def get_scheduler_status() -> dict:
         "last_cleanup": config.get("last_cleanup"),
         "last_cleanup_result": config.get("last_cleanup_result"),
         "next_cleanup": cleanup_job.next_run_time.isoformat() if cleanup_job and cleanup_job.next_run_time else None,
+        "archive_enabled": config.get("archive_enabled", True),
+        "archive_days": config.get("archive_days", 30),
+        "last_archive": config.get("last_archive"),
+        "last_archive_result": config.get("last_archive_result"),
+        "next_archive": archive_job.next_run_time.isoformat() if archive_job and archive_job.next_run_time else None,
     }

@@ -7,7 +7,8 @@ Run this from your backend/ directory:
     python cleanup.py dedup    # remove duplicates
     python cleanup.py reset    # delete ALL jobs and start fresh
     python cleanup.py no-desc  # remove jobs with no description
-    python cleanup.py stale [days]  # remove 'found' jobs older than N days (default 90)
+    python cleanup.py stale [days]    # remove 'found' jobs older than N days (default 90)
+    python cleanup.py archive [days]  # archive 'found' jobs older than N days (default 30)
 """
 
 import sys
@@ -23,13 +24,14 @@ SessionLocal = sessionmaker(bind=engine)
 db = SessionLocal()
 
 
+# For debugging
 def show_stats():
     total = db.query(Job).count()
     print(f"\n{'='*40}")
     print(f"  Total jobs in database: {total}")
     print(f"{'='*40}")
 
-    statuses = ["found", "applied", "interview", "offer", "rejected", "skipped"]
+    statuses = ["found", "applied", "interview", "offer", "rejected", "skipped", "archived"]
     for s in statuses:
         count = db.query(Job).filter(Job.status == s).count()
         if count:
@@ -44,6 +46,7 @@ def show_stats():
     print(f"{'='*40}\n")
 
 
+# Finds dups via hashmap search
 def find_duplicates():
     all_jobs = db.query(Job).order_by(Job.created_at.desc()).all()
     seen_urls = {}
@@ -171,6 +174,34 @@ def cleanup_stale_found_jobs(session: Session, days: int = 90) -> dict:
     session.commit()
     return {"deleted": count, "cutoff": cutoff.isoformat(), "days": days}
 
+
+def archive_stale_found_jobs(session: Session, days: int = 30) -> dict:
+    """
+    Archive jobs still in 'found' status whose posted date is older than `days`,
+    by flipping their status to 'archived' instead of deleting them. Falls back
+    to created_at when date_posted is missing, same reasoning as
+    cleanup_stale_found_jobs.
+
+    This is the reusable core used by both the CLI command below and by the
+    API/scheduler — it takes a session as a parameter instead of relying on
+    this module's own global `db`, so it works fine when imported elsewhere.
+    """
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    query = session.query(Job).filter(
+        Job.status == "found",
+        or_(
+            Job.date_posted < cutoff,
+            and_(Job.date_posted.is_(None), Job.created_at < cutoff),
+        ),
+    )
+    count = query.update(
+        {"status": "archived", "updated_at": datetime.utcnow()},
+        synchronize_session=False,
+    )
+    session.commit()
+    return {"archived": count, "cutoff": cutoff.isoformat(), "days": days}
+
+
 def remove_blacklisted_jobs(session: Session) -> dict:
     """Delete any existing jobs from blacklisted companies."""
     from blacklist import load_blacklist
@@ -184,6 +215,7 @@ def remove_blacklisted_jobs(session: Session) -> dict:
         session.query(Job).filter(Job.id.in_(to_delete)).delete(synchronize_session=False)
         session.commit()
     return {"deleted": len(to_delete)}
+
 
 def stale(days: int = 90):
     """CLI wrapper: preview + confirm before deleting stale 'found' jobs."""
@@ -217,6 +249,38 @@ def stale(days: int = 90):
     print(f"\nDone. Removed {result['deleted']} stale jobs.")
 
 
+def archive(days: int = 30):
+    """CLI wrapper: preview + confirm before archiving stale 'found' jobs."""
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    candidates = db.query(Job).filter(
+        Job.status == "found",
+        or_(
+            Job.date_posted < cutoff,
+            and_(Job.date_posted.is_(None), Job.created_at < cutoff),
+        ),
+    ).all()
+
+    if not candidates:
+        print(f"No 'found' jobs older than {days} days. Nothing to archive.")
+        return
+
+    print(f"\nFound {len(candidates)} 'found' jobs older than {days} days:")
+    for job in candidates[:10]:
+        posted = job.date_posted.date() if job.date_posted else "unknown (using scrape date)"
+        print(f"  ID {job.id:<5} {job.company:<25} {job.title[:35]:<35} (posted {posted})")
+    if len(candidates) > 10:
+        print(f"  ... and {len(candidates) - 10} more")
+
+    print(f"\nArchive these {len(candidates)} jobs? (y/n): ", end="")
+    confirm = input().strip().lower()
+    if confirm != "y":
+        print("Cancelled.")
+        return
+
+    result = archive_stale_found_jobs(db, days=days)
+    print(f"\nDone. Archived {result['archived']} stale jobs.")
+
+
 if __name__ == "__main__":
     command = sys.argv[1] if len(sys.argv) > 1 else "stats"
 
@@ -235,6 +299,10 @@ if __name__ == "__main__":
         days = int(sys.argv[2]) if len(sys.argv) > 2 else 90
         stale(days)
         show_stats()
+    elif command == "archive":
+        days = int(sys.argv[2]) if len(sys.argv) > 2 else 30
+        archive(days)
+        show_stats()
     elif command == "stats":
         pass  # already printed above
     else:
@@ -243,4 +311,5 @@ if __name__ == "__main__":
         print("  python cleanup.py dedup    - remove duplicate jobs")
         print("  python cleanup.py reset    - delete ALL jobs")
         print("  python cleanup.py no-desc  - remove jobs with no description")
-        print("  python cleanup.py stale [days]  - remove 'found' jobs older than N days (default 90)")
+        print("  python cleanup.py stale [days]    - remove 'found' jobs older than N days (default 90)")
+        print("  python cleanup.py archive [days]  - archive 'found' jobs older than N days (default 30)")

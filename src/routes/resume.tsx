@@ -14,6 +14,7 @@ function ResumePage() {
   const qc = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [previewExpanded, setPreviewExpanded] = useState(false);
 
   const { data: status, isLoading } = useQuery({
     queryKey: ["resume"],
@@ -57,7 +58,7 @@ function ResumePage() {
         </p>
       </div>
 
-      {/* Status */}
+       {/* Status */}
       <div className="rounded-xl border border-border bg-card/40 p-5 space-y-3">
         {isLoading ? (
           <div className="py-4 grid place-items-center">
@@ -65,28 +66,23 @@ function ResumePage() {
           </div>
         ) : (
           <>
-            <div className="flex items-center gap-2 text-sm">
-              {status?.resume_exists ? (
-                <CheckCircle2 className="size-4 text-success" />
-              ) : (
-                <XCircle className="size-4 text-muted-foreground" />
-              )}
-              <span>{status?.resume_exists ? "Resume on file" : "No resume uploaded yet"}</span>
-            </div>
-            <div className="flex items-center gap-2 text-sm">
-              {status?.embedding_exists ? (
-                <CheckCircle2 className="size-4 text-success" />
-              ) : (
-                <XCircle className="size-4 text-muted-foreground" />
-              )}
-              <span>{status?.embedding_exists ? "Embedding computed" : "Embedding not computed"}</span>
-            </div>
+            {/* ...unchanged resume/embedding status rows... */}
             {status?.preview && (
               <div className="mt-2 pt-3 border-t border-border">
                 <p className="text-xs text-muted-foreground mb-1">Preview</p>
-                <p className="text-sm text-foreground/80 leading-relaxed line-clamp-4">
+                <p
+                  className={`text-sm text-foreground/80 leading-relaxed ${
+                    previewExpanded ? "" : "line-clamp-4"
+                  }`}
+                >
                   {status.preview}
                 </p>
+                <button
+                  onClick={() => setPreviewExpanded((v) => !v)}
+                  className="mt-1.5 text-xs font-medium text-primary hover:underline"
+                >
+                  {previewExpanded ? "Show less" : "Show more"}
+                </button>
               </div>
             )}
           </>

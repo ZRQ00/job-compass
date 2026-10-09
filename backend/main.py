@@ -1,3 +1,4 @@
+import logging
 from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, Query, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -16,6 +17,8 @@ from schemas import (
 from scraper import scrape_and_store
 from exporter import export_to_csv, export_to_xlsx
 from scheduler import start_scheduler, stop_scheduler, get_scheduler_status, load_config, save_config, run_scheduled_scrapes
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="JobTracker API",
@@ -134,7 +137,6 @@ def get_jobs(
     remote_only: Optional[bool] = Query(None, description="Filter remote jobs only"),
     salary_min: Optional[int] = Query(None, description="Minimum salary filter"),
     search: Optional[str] = Query(None, description="Search in title, company, description"),
-    limit: int = Query(100, le=500),
     offset: int = Query(0),
     db: Session = Depends(get_db)
 ):
@@ -162,12 +164,12 @@ def get_jobs(
             )
         )
 
-    return query.order_by(Job.created_at.desc()).offset(offset).limit(limit).all()
+    return query.order_by(Job.created_at.desc()).offset(offset).all()
 
 @app.post("/jobs", response_model=JobResponse, status_code=201, tags=["Jobs"])
 def create_job(job_data: JobCreate, db: Session = Depends(get_db)):
     """Manually add a job to the tracker (e.g. something you found yourself, not scraped)."""
-    valid_statuses = ["found", "applied", "interview", "offer", "rejected", "skipped"]
+    valid_statuses = ["found", "applied", "interview", "offer", "rejected", "skipped", "archived"]
     status = job_data.status or "found"
     if status not in valid_statuses:
         raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
@@ -216,7 +218,7 @@ def update_job(job_id: int, update: JobUpdate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Job not found")
 
     if update.status is not None:
-        valid_statuses = ["found", "applied", "interview", "offer", "rejected", "skipped"]
+        valid_statuses = ["found", "applied", "interview", "offer", "rejected", "skipped", "archived"]
         if update.status not in valid_statuses:
             raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
         job.status = update.status
@@ -438,7 +440,7 @@ def get_resume():
     return {
         "resume_exists": RESUME_PATH.exists(),
         "embedding_exists": RESUME_EMBEDDING_PATH.exists(),
-        "preview": RESUME_PATH.read_text()[:300] + "..." if RESUME_PATH.exists() else None,
+        "preview": RESUME_PATH.read_text() if RESUME_PATH.exists() else None,
     }
 
 
@@ -472,7 +474,8 @@ def rescore_all_jobs(db: Session = Depends(get_db)):
             )
             job.fit_score = score_job(job_text, resume_embedding)
             scored += 1
-        except Exception:
+        except Exception as e:
+            logger.exception(f"Failed to score job {job.id} ({job.title!r}): {e}")
             errors += 1
 
     db.commit()
@@ -499,6 +502,15 @@ def cleanup_old_found_jobs(
 def purge_blacklisted_jobs(db: Session = Depends(get_db)):
     from cleanup import remove_blacklisted_jobs
     return remove_blacklisted_jobs(db)
+
+@app.post("/jobs/archive", tags=["Jobs"])
+def archive_old_found_jobs(
+    days: int = Query(30, description="Archive 'found' jobs older than this many days since posting"),
+    db: Session = Depends(get_db),
+):
+    """Mark stale 'found' jobs as archived (kept in the DB, hidden from the active view) instead of deleting them."""
+    from cleanup import archive_stale_found_jobs
+    return archive_stale_found_jobs(db, days=days)
 
 @app.post("/dedup", tags=["Jobs"])
 def deduplicate_jobs(db: Session = Depends(get_db)):
