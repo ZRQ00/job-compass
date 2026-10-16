@@ -1,349 +1,389 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
-import { useQueries, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, Job, JobStatus, STATUS_LABELS } from "@/lib/api";
-import { JobDetailDialog } from "@/components/JobDetailDialog";
-import { Loader2, ArrowUp, ArrowDown, ArrowUpDown, ChevronLeft, ChevronRight, Search, Plus, Info } from "lucide-react";
-import { toast } from "sonner";
-import { Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  Columns3,
+  Loader2,
+  Plus,
+  Rows3,
+  Search,
+} from "lucide-react";
+import { api, type Job, type JobStatus } from "@/lib/api";
+import {
+  ACTIVE,
+  formatDay,
+  formatSalary,
+  parseDay,
+  parseTimestamp,
+  scoreTone,
+  STATUS_META,
+  STATUSES,
+} from "@/lib/jobs";
+import { StatusSelect } from "@/components/StatusBadge";
+import { PipelineBoard } from "@/components/PipelineBoard";
+import { useUpdateStatus } from "@/hooks/useJobMutations";
+import { cn } from "@/lib/utils";
 
-const STATUSES: JobStatus[] = ["found", "applied", "interview", "offer", "rejected"];
-const PAGE_SIZE = 15;
-const MAX_SORT_LEVELS = 3;
-
-const STATUS_DOT: Record<JobStatus, string> = {
-  found: "bg-info",
-  applied: "bg-primary",
-  interview: "bg-warning",
-  offer: "bg-success",
-  rejected: "bg-destructive",
-  skipped: "bg-muted-foreground",
-};
-
-type SortKey = "title" | "company" | "status" | "date" | "score";
-type SortDir = "asc" | "desc";
-type SortCriterion = { key: SortKey; dir: SortDir };
-
-const SORT_LABELS: Record<SortKey, string> = {
-  title: "Title",
-  company: "Company",
-  status: "Status",
-  date: "Date",
-  score: "Match",
-};
-
-function defaultDir(key: SortKey): SortDir {
-  return key === "score" || key === "date" ? "desc" : "asc";
-}
-
-function getDate(job: Job): number {
-  const raw = job.date_posted ?? job.created_at;
-  const t = raw ? new Date(raw).getTime() : 0;
-  return Number.isNaN(t) ? 0 : t;
-}
-
-function getScore(job: Job): number {
-  return job.reasoning_score ?? job.fit_score ?? -1;
-}
-
-function compareByKey(a: Job, b: Job, key: SortKey): number {
-  if (key === "title") return (a.title ?? "").localeCompare(b.title ?? "");
-  if (key === "company") return (a.company ?? "").localeCompare(b.company ?? "");
-  if (key === "status") return a.status.localeCompare(b.status);
-  if (key === "score") return getScore(a) - getScore(b);
-  // Truncate to calendar-day precision so same-day jobs actually tie,
-  // matching what's shown in the Date column (which only shows the date, not time).
-  const dayA = Math.floor(getDate(a) / 86_400_000);
-  const dayB = Math.floor(getDate(b) / 86_400_000);
-  return dayA - dayB;
-}
-
-function scoreColor(score: number) {
-  if (score >= 75) return "text-success";
-  if (score >= 50) return "text-warning";
-  return "text-destructive";
-}
+type Filter = JobStatus | "all" | "active";
+type View = "table" | "board";
+type SortKey =
+  | "company"
+  | "role"
+  | "location"
+  | "salary"
+  | "status"
+  | "date_applied"
+  | "match"
+  | "updated";
 
 export const Route = createFileRoute("/tracker")({
-  head: () => ({ meta: [{ title: "Tracker — Job Compass" }] }),
+  head: () => ({ meta: [{ title: "Tracker · Job Compass" }] }),
+  validateSearch: (s: Record<string, unknown>): { status?: Filter } => {
+    const v = s.status as Filter | undefined;
+    return v && (v === "all" || v === "active" || STATUSES.includes(v as JobStatus))
+      ? { status: v }
+      : {};
+  },
   component: Tracker,
 });
 
-function SortHeader({
-  label,
-  sortKey,
-  sorts,
-  onClick,
-  className = "",
-}: {
-  label: string;
-  sortKey: SortKey;
-  sorts: SortCriterion[];
-  onClick: (key: SortKey, additive: boolean) => void;
-  className?: string;
-}) {
-  const index = sorts.findIndex((s) => s.key === sortKey);
-  const active = index !== -1;
-  const dir = active ? sorts[index].dir : undefined;
+const PAGE_SIZE = 25;
 
-  return (
-    <th className={`text-left font-medium text-xs text-muted-foreground select-none ${className}`}>
+function sortValue(j: Job, key: SortKey): string | number {
+  switch (key) {
+    case "company":
+      return j.company.toLowerCase();
+    case "role":
+      return j.role.toLowerCase();
+    case "location":
+      return (j.location ?? "~").toLowerCase();
+    case "salary":
+      return j.salary_max ?? j.salary_min ?? -1;
+    case "status":
+      return STATUSES.indexOf(j.status);
+    case "date_applied":
+      return parseDay(j.date_applied)?.getTime() ?? -1;
+    case "match":
+      return j.match_score ?? -1;
+    case "updated":
+      return parseTimestamp(j.updated_at)?.getTime() ?? 0;
+  }
+}
+
+function usePersistentView(): [View, (v: View) => void] {
+  const [view, setView] = useState<View>("table");
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("tracker-view");
+      if (saved === "board" || saved === "table") setView(saved);
+    } catch {
+      /* storage unavailable */
+    }
+  }, []);
+  return [
+    view,
+    (v) => {
+      setView(v);
+      try {
+        localStorage.setItem("tracker-view", v);
+      } catch {
+        /* ignore */
+      }
+    },
+  ];
+}
+
+function Tracker() {
+  const navigate = useNavigate({ from: "/tracker" });
+  const { status: filterParam } = Route.useSearch();
+  const filter: Filter = filterParam ?? "active";
+  const setFilter = (f: Filter) => navigate({ search: f === "active" ? {} : { status: f } });
+
+  const [view, setView] = usePersistentView();
+  const [search, setSearch] = useState("");
+  const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({
+    key: "updated",
+    dir: "desc",
+  });
+  const [page, setPage] = useState(1);
+
+  const {
+    data: jobs = [],
+    isLoading,
+    error,
+  } = useQuery({ queryKey: ["jobs"], queryFn: () => api.jobs() });
+  const updateStatus = useUpdateStatus();
+
+  const counts = useMemo(() => {
+    const c = Object.fromEntries(STATUSES.map((s) => [s, 0])) as Record<JobStatus, number>;
+    jobs.forEach((j) => c[j.status]++);
+    return c;
+  }, [jobs]);
+
+  const searched = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return jobs;
+    return jobs.filter((j) =>
+      [j.company, j.role, j.location, j.notes].some((f) => f?.toLowerCase().includes(q)),
+    );
+  }, [jobs, search]);
+
+  const rows = useMemo(() => {
+    let r = searched;
+    if (filter === "active") r = r.filter((j) => ACTIVE.includes(j.status));
+    else if (filter !== "all") r = r.filter((j) => j.status === filter);
+    const dir = sort.dir === "asc" ? 1 : -1;
+    return [...r].sort((a, b) => {
+      const va = sortValue(a, sort.key);
+      const vb = sortValue(b, sort.key);
+      return (va < vb ? -1 : va > vb ? 1 : 0) * dir;
+    });
+  }, [searched, filter, sort]);
+
+  useEffect(() => setPage(1), [filter, search, sort]);
+  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const pageRows = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  const toggleSort = (key: SortKey) =>
+    setSort((s) =>
+      s.key === key
+        ? { key, dir: s.dir === "asc" ? "desc" : "asc" }
+        : {
+            key,
+            dir: ["match", "salary", "date_applied", "updated"].includes(key) ? "desc" : "asc",
+          },
+    );
+
+  const Th = ({ k, label, className }: { k: SortKey; label: string; className?: string }) => (
+    <th className={cn("py-2 text-left text-xs font-medium text-muted-foreground", className)}>
       <button
-        onClick={(e) => onClick(sortKey, e.shiftKey)}
-        title="Click to sort. Shift+click to add as a tiebreaker."
-        className="flex items-center gap-1 py-2 hover:text-foreground transition-colors"
+        onClick={() => toggleSort(k)}
+        className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
       >
         {label}
-        {active ? (
-          <span className="flex items-center gap-0.5">
-            {dir === "asc" ? <ArrowUp className="size-3" /> : <ArrowDown className="size-3" />}
-            {sorts.length > 1 && (
-              <span className="text-[9px] tabular-nums opacity-70 leading-none">{index + 1}</span>
-            )}
-          </span>
+        {sort.key === k ? (
+          sort.dir === "asc" ? (
+            <ArrowUp className="size-3" />
+          ) : (
+            <ArrowDown className="size-3" />
+          )
         ) : (
-          <ArrowUpDown className="size-3 opacity-40" />
+          <ArrowUpDown className="size-3 opacity-30" />
         )}
       </button>
     </th>
   );
-}
 
-function Tracker() {
-  const [selected, setSelected] = useState<string | number | null>(null);
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<JobStatus | "all">("all");
-  const [sorts, setSorts] = useState<SortCriterion[]>([{ key: "score", dir: "desc" }]);
-  const [page, setPage] = useState(1);
-  const qc = useQueryClient();
-
-  const queries = useQueries({
-    queries: STATUSES.map((status) => ({
-      queryKey: ["jobs", status],
-      queryFn: () => api.jobsByStatus(status),
-    })),
-  });
-
-  const isLoading = queries.some((q) => q.isLoading);
-  const allJobs: Job[] = useMemo(
-    () => queries.flatMap((q) => q.data ?? []),
-    [queries]
-  );
-
-  const updateStatus = useMutation({
-    mutationFn: ({ id, status }: { id: string | number; status: JobStatus }) =>
-      api.updateStatus(id, status),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["jobs"] });
-      qc.invalidateQueries({ queryKey: ["stats"] });
-      toast.success("Status updated");
+  const chips: { id: Filter; label: string; count: number }[] = [
+    {
+      id: "active",
+      label: "Active",
+      count: counts.applied + counts.interview + counts.offer,
     },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
-  const filtered = useMemo(() => {
-    let rows = allJobs;
-    if (statusFilter !== "all") rows = rows.filter((j) => j.status === statusFilter);
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      rows = rows.filter(
-        (j) => j.title?.toLowerCase().includes(q) || j.company?.toLowerCase().includes(q)
-      );
-    }
-    const sorted = [...rows].sort((a, b) => {
-      for (const { key, dir } of sorts) {
-        const cmp = compareByKey(a, b, key);
-        if (cmp !== 0) return dir === "asc" ? cmp : -cmp;
-      }
-      return 0;
-    });
-    return sorted;
-  }, [allJobs, statusFilter, search, sorts]);
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const pageRows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-
-  const handleSort = (key: SortKey, additive: boolean) => {
-    setPage(1);
-    setSorts((prev) => {
-      const idx = prev.findIndex((s) => s.key === key);
-
-      if (!additive) {
-        // Plain click: this becomes the only sort. If it already was the sole
-        // sort, toggle its direction instead of resetting it.
-        if (prev.length === 1 && prev[0].key === key) {
-          return [{ key, dir: prev[0].dir === "asc" ? "desc" : "asc" }];
-        }
-        return [{ key, dir: defaultDir(key) }];
-      }
-
-      // Shift+click: toggle this key's direction if it's already part of the
-      // sort, otherwise append it as the next tiebreaker (capped at 3 levels).
-      if (idx !== -1) {
-        const next = [...prev];
-        next[idx] = { key, dir: next[idx].dir === "asc" ? "desc" : "asc" };
-        return next;
-      }
-      if (prev.length >= MAX_SORT_LEVELS) return prev;
-      return [...prev, { key, dir: defaultDir(key) }];
-    });
-  };
+    ...STATUSES.map((s) => ({ id: s as Filter, label: STATUS_META[s].label, count: counts[s] })),
+    { id: "all", label: "All", count: jobs.length },
+  ];
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-4xl font-semibold tracking-tight">Tracker</h1>
-        <p className="text-muted-foreground mt-1">All your applications in one list.</p>
-      </div>
-
-      {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative flex-1 min-w-[200px] max-w-sm">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
-          <input
-            value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-            placeholder="Search title or company…"
-            className="w-full pl-8 pr-3 py-2 text-sm rounded-lg border border-border bg-card/40 focus:outline-none focus:ring-1 focus:ring-primary"
-          />
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Tracker</h1>
+          <p className="mt-1 text-muted-foreground">
+            Every job you've applied to, from sent to signed.
+          </p>
         </div>
-
-        <select
-          value={statusFilter}
-          onChange={(e) => { setStatusFilter(e.target.value as JobStatus | "all"); setPage(1); }}
-          className="px-3 py-2 text-sm rounded-lg border border-border bg-card/40 focus:outline-none focus:ring-1 focus:ring-primary"
-        >
-          <option value="all">All statuses</option>
-          {STATUSES.map((s) => (
-            <option key={s} value={s}>{STATUS_LABELS[s]}</option>
-          ))}
-        </select>
-
-        <span className="text-xs text-muted-foreground ml-auto tabular-nums">
-          {filtered.length} job{filtered.length === 1 ? "" : "s"}
-        </span>
-
         <Link
           to="/tracker/new"
-          className="inline-flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
+          className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
         >
-          <Plus className="size-3.5" />
-          Add job
+          <Plus className="size-4" /> Add job
         </Link>
       </div>
 
-      {/* Active sort summary */}
-      {sorts.length > 1 && (
-        <p className="text-xs text-muted-foreground">
-          Sorted by {sorts.map((s, i) => `${i + 1}. ${SORT_LABELS[s.key]} (${s.dir === "desc" ? "high → low" : "low → high"})`).join("  ·  ")}
-          {"  ·  "}
-          <button onClick={() => setSorts([{ key: "score", dir: "desc" }])} className="underline underline-offset-2 hover:text-foreground">
-            Reset
-          </button>
-        </p>
-      )}
-
-      {/* Table */}
-      <div className="rounded-xl border border-border overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-card/60 border-b border-border">
-            <tr>
-              <SortHeader label="Title" sortKey="title" sorts={sorts} onClick={handleSort} className="pl-4" />
-              <SortHeader label="Company" sortKey="company" sorts={sorts} onClick={handleSort} />
-              <SortHeader label="Status" sortKey="status" sorts={sorts} onClick={handleSort} />
-              <SortHeader label="Match" sortKey="score" sorts={sorts} onClick={handleSort} />
-              <SortHeader label="Date" sortKey="date" sorts={sorts} onClick={handleSort} className="pr-4" />
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {isLoading ? (
-              <tr>
-                <td colSpan={5} className="py-10 text-center">
-                  <Loader2 className="size-4 animate-spin text-muted-foreground inline" />
-                </td>
-              </tr>
-            ) : pageRows.length === 0 ? (
-              <tr>
-                <td colSpan={5} className="py-10 text-center text-muted-foreground text-xs">
-                  No jobs match your filters.
-                </td>
-              </tr>
-            ) : (
-              pageRows.map((job) => {
-                const score = getScore(job);
-                return (
-                  <tr
-                    key={job.id}
-                    onClick={() => setSelected(job.id)}
-                    className="hover:bg-accent/40 cursor-pointer transition-colors"
-                  >
-                    <td className="pl-4 py-2.5 font-medium">{job.title ?? "Untitled"}</td>
-                    <td className="py-2.5 text-muted-foreground">{job.company ?? "—"}</td>
-                    <td className="py-2.5" onClick={(e) => e.stopPropagation()}>
-                      <select
-                        value={job.status}
-                        onChange={(e) =>
-                          updateStatus.mutate({ id: job.id, status: e.target.value as JobStatus })
-                        }
-                        className="text-xs rounded-md border border-border bg-background pl-2 pr-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-primary"
-                      >
-                        {STATUSES.map((s) => (
-                          <option key={s} value={s}>{STATUS_LABELS[s]}</option>
-                        ))}
-                      </select>
-                      <span className={`inline-block size-1.5 rounded-full ml-1.5 ${STATUS_DOT[job.status]}`} />
-                    </td>
-                    <td className="py-2.5">
-                      {score >= 0 ? (
-                        <span className="inline-flex items-center gap-1">
-                          <span className={`font-medium tabular-nums ${scoreColor(score)}`}>{score}%</span>
-                          {job.fit_reasoning && (
-                            <span title={job.fit_reasoning}>
-                              <Info className="size-3.5 text-muted-foreground cursor-help" />
-                            </span>
-                          )}
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </td>
-                    <td className="pr-4 py-2.5 text-muted-foreground tabular-nums">
-                      {getDate(job) ? new Date(getDate(job)).toLocaleDateString() : "—"}
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative min-w-[200px] max-w-xs flex-1">
+          <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search company, role, notes…"
+            className="w-full rounded-lg border border-border bg-card/40 py-2 pl-8 pr-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+        </div>
+        <div className="ml-auto inline-flex rounded-lg border border-border bg-card/40 p-0.5">
+          {(
+            [
+              ["table", Rows3, "Table"],
+              ["board", Columns3, "Board"],
+            ] as const
+          ).map(([v, Icon, label]) => (
+            <button
+              key={v}
+              onClick={() => setView(v)}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs transition-colors",
+                view === v
+                  ? "bg-accent text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <Icon className="size-3.5" /> {label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-center gap-3">
-          <button
-            disabled={page === 1}
-            onClick={() => setPage((p) => p - 1)}
-            className="p-1.5 rounded hover:bg-accent disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-          >
-            <ChevronLeft className="size-4" />
-          </button>
-          <span className="text-xs text-muted-foreground tabular-nums">{page} / {totalPages}</span>
-          <button
-            disabled={page === totalPages}
-            onClick={() => setPage((p) => p + 1)}
-            className="p-1.5 rounded hover:bg-accent disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-          >
-            <ChevronRight className="size-4" />
-          </button>
+      {view === "table" && (
+        <div className="flex flex-wrap gap-1.5">
+          {chips.map((c) => (
+            <button
+              key={c.id}
+              onClick={() => setFilter(c.id)}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-colors",
+                filter === c.id
+                  ? "border-primary/50 bg-primary/15 text-foreground"
+                  : "border-border text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {c.id !== "all" && c.id !== "active" && (
+                <span className={cn("size-1.5 rounded-full", STATUS_META[c.id].dot)} />
+              )}
+              {c.label}
+              <span className="tabular-nums opacity-60">{c.count}</span>
+            </button>
+          ))}
         </div>
       )}
 
-      <JobDetailDialog
-        jobId={selected}
-        open={!!selected}
-        onOpenChange={(o) => !o && setSelected(null)}
-      />
+      {error ? (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
+          {(error as Error).message}
+        </div>
+      ) : isLoading ? (
+        <div className="grid place-items-center py-20">
+          <Loader2 className="size-5 animate-spin text-muted-foreground" />
+        </div>
+      ) : jobs.length === 0 ? (
+        <EmptyState />
+      ) : view === "board" ? (
+        <PipelineBoard jobs={searched} />
+      ) : (
+        <>
+          <div className="overflow-x-auto rounded-xl border border-border">
+            <table className="w-full min-w-[860px] text-sm">
+              <thead className="border-b border-border bg-card/60">
+                <tr>
+                  <Th k="company" label="Company" className="pl-4" />
+                  <Th k="role" label="Role" />
+                  <Th k="location" label="Location" />
+                  <Th k="salary" label="Salary" />
+                  <Th k="status" label="Status" />
+                  <Th k="date_applied" label="Applied" />
+                  <Th k="match" label="Match" className="pr-4" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {pageRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-12 text-center text-xs text-muted-foreground">
+                      No jobs match this filter.
+                    </td>
+                  </tr>
+                ) : (
+                  pageRows.map((job) => (
+                    <tr
+                      key={job.id}
+                      onClick={() =>
+                        navigate({ to: "/tracker/$jobId", params: { jobId: String(job.id) } })
+                      }
+                      className="cursor-pointer transition-colors hover:bg-accent/30"
+                    >
+                      <td className="py-2.5 pl-4 font-medium">{job.company}</td>
+                      <td className="max-w-[260px] truncate py-2.5 text-foreground/85">
+                        {job.role}
+                      </td>
+                      <td className="max-w-[160px] truncate py-2.5 text-muted-foreground">
+                        {job.location ?? "—"}
+                      </td>
+                      <td className="py-2.5 tabular-nums text-muted-foreground">
+                        {formatSalary(job.salary_min, job.salary_max) ?? "—"}
+                      </td>
+                      <td className="py-2.5">
+                        <StatusSelect
+                          value={job.status}
+                          onChange={(s) => updateStatus.mutate({ id: job.id, status: s })}
+                        />
+                      </td>
+                      <td className="py-2.5 tabular-nums text-muted-foreground">
+                        {formatDay(job.date_applied) ?? "—"}
+                      </td>
+                      <td className="py-2.5 pr-4">
+                        {job.match_score != null ? (
+                          <span
+                            className={cn("font-medium tabular-nums", scoreTone(job.match_score))}
+                          >
+                            {job.match_score}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span className="tabular-nums">
+              {rows.length} job{rows.length === 1 ? "" : "s"}
+            </span>
+            {totalPages > 1 && (
+              <div className="flex items-center gap-2">
+                <button
+                  disabled={page === 1}
+                  onClick={() => setPage((p) => p - 1)}
+                  className="rounded px-2 py-1 hover:bg-accent disabled:opacity-30"
+                >
+                  Prev
+                </button>
+                <span className="tabular-nums">
+                  {page} / {totalPages}
+                </span>
+                <button
+                  disabled={page === totalPages}
+                  onClick={() => setPage((p) => p + 1)}
+                  className="rounded px-2 py-1 hover:bg-accent disabled:opacity-30"
+                >
+                  Next
+                </button>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function EmptyState() {
+  return (
+    <div className="rounded-xl border border-dashed border-border p-12 text-center">
+      <h3 className="font-display text-lg font-semibold">No jobs yet</h3>
+      <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
+        Found something on a job board? Paste the description and let autofill do the typing.
+      </p>
+      <Link
+        to="/tracker/new"
+        className="mt-5 inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+      >
+        <Plus className="size-4" /> Add your first job
+      </Link>
     </div>
   );
 }

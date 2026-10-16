@@ -1,182 +1,189 @@
-export const API_BASE = "http://localhost:9500";
+// Typed client for the Job Compass backend (FastAPI, backend/app).
 
-export type JobStatus = "found" | "applied" | "interview" | "offer" | "rejected" | "skipped";
+export const API_BASE: string =
+  (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ??
+  "http://localhost:3502";
+
+export type JobStatus = "applied" | "interview" | "offer" | "rejected" | "withdrawn";
+
+export interface MatchDetails {
+  strengths: string[];
+  gaps: string[];
+  suggestions: string[];
+}
 
 export interface Job {
-  id: string | number;
-  title: string;
+  id: number;
   company: string;
-  location?: string;
-  job_type?: string;
+  role: string;
+  location: string | null;
+  date_applied: string | null; // YYYY-MM-DD
+  salary_min: number | null;
+  salary_max: number | null;
+  notes: string | null;
+  status: JobStatus;
+  job_description: string | null;
+  job_url: string | null;
+  match_score: number | null;
+  match_summary: string | null;
+  match_details: MatchDetails | null;
+  matched_at: string | null;
+  created_at: string;
+  updated_at: string;
+  status_changed_at: string;
+}
+
+export interface JobEvent {
+  from_status: JobStatus | null;
+  to_status: JobStatus;
+  created_at: string;
+}
+
+export interface JobDetail extends Job {
+  events: JobEvent[];
+}
+
+export type JobInput = {
+  company: string;
+  role: string;
+  location?: string | null;
+  date_applied?: string | null;
   salary_min?: number | null;
   salary_max?: number | null;
-  salary_currency?: string;
-  description?: string;
-  requirements?: string;
-  tech_stack?: string;
-  job_url?: string;
-  source?: string;
-  status: JobStatus;
-  priority?: string;
-  fit_score?: number | null;
-  notes?: string;
-  applied_date?: string | null;
-  created_at: string;
-  is_remote?: boolean;
-  date_posted?: string | null;
-  reasoning_score?: number | null;
-  fit_reasoning?: string | null;
-}
-
-export interface ResumeStatus {
-  resume_exists: boolean;
-  embedding_exists: boolean;
-  preview: string | null;
-}
-
-
-// Fixed: matches backend field names (interview not interviews, offer not offers)
-export interface Stats {
-  total: number;
-  found: number;
-  applied: number;
-  interview: number;
-  offer: number;
-  rejected: number;
-  skipped: number;
-}
-
-export interface ScrapeParams {
-  search_term: string;
-  location?: string;
-  salary_min?: number;
-  remote_only?: boolean;
-  results_wanted?: number;
-  sites?: string[];
-}
-
-export interface SchedulerStatus {
-  running: boolean;
-  enabled: boolean;
-  interval_hours: number;
-  last_run: string | null;
-  next_run: string | null;
-  last_run_result: {
-    total_found: number;
-    total_added: number;
-    searches: Array<{
-      search_term: string;
-      jobs_found?: number;
-      jobs_added?: number;
-      error?: string;
-    }>;
-  } | null;
-  cleanup_enabled: boolean;
-  cleanup_days: number;
-  last_cleanup: string | null;
-  last_cleanup_result: { deleted: number; cutoff: string; days: number; error?: string } | null;
-  next_cleanup: string | null;
-}
-async function req<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers || {}),
-    },
-  });
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-  const ct = res.headers.get("content-type") || "";
-  return (ct.includes("application/json") ? res.json() : (res.text() as any)) as Promise<T>;
-}
-
-export type JobCreate = Pick<Job, "title" | "company"> &
-  Partial<Pick<Job,
-    | "location" | "job_type" | "salary_min" | "salary_max" | "salary_currency"
-    | "description" | "requirements" | "tech_stack" | "job_url" | "source"
-    | "status" | "priority" | "notes" | "is_remote" | "date_posted"
-  >>;
-
-
-export const api = {
-  // Stats
-  stats: () => req<Stats>("/stats"),
-  reasonJobStreamUrl: (id: string | number) => `${API_BASE}/jobs/${id}/reason/stream`,
-  // Jobs
-  jobsByStatus: (status: JobStatus, limit = 500) =>
-    req<Job[]>(`/jobs?status=${encodeURIComponent(status)}&limit=${limit}`),
-  jobs: (params?: { search?: string; remote_only?: boolean; salary_min?: number; limit?: number }) => {
-    const q = new URLSearchParams();
-    if (params?.search) q.set("search", params.search);
-    if (params?.remote_only) q.set("remote_only", "true");
-    if (params?.salary_min) q.set("salary_min", String(params.salary_min));
-    q.set("limit", String(params?.limit ?? 500));
-    return req<Job[]>(`/jobs?${q.toString()}`);
-  },
-  job: (id: string | number) => req<Job>(`/jobs/${id}`),
-  createJob: (data: JobCreate) =>
-    req<Job>("/jobs", { method: "POST", body: JSON.stringify(data) }),
-  updateJob: (id: string | number, update: Partial<Pick<Job, "status" | "priority" | "notes" | "fit_score">>) =>
-    req<Job>(`/jobs/${id}`, { method: "PATCH", body: JSON.stringify(update) }),
-  updateStatus: (id: string | number, status: JobStatus) =>
-    req<Job>(`/jobs/${id}`, { method: "PATCH", body: JSON.stringify({ status }) }),
-  deleteJob: (id: string | number) =>
-    req<void>(`/jobs/${id}`, { method: "DELETE" }),
-  reasonJob: (id: string | number) => req<Job>(`/jobs/${id}/reason`, { method: "POST" }),
-  cancelReasonJob: (id: string | number) =>
-    req<{ cancelled: boolean }>(`/jobs/${id}/reason/cancel`, { method: "POST" }),
-  reasonJobCancelUrl: (id: string | number) => `${API_BASE}/jobs/${id}/reason/cancel`,
-
-
-  // Scrape
-  scrape: (data: ScrapeParams) =>
-    req<{ message: string; jobs_found: number; jobs_added: number; jobs_duplicate: number }>(
-      "/scrape",
-      { method: "POST", body: JSON.stringify(data) }
-    ),
-  scrapeStreamUrl: (data: ScrapeParams) => {
-    const q = new URLSearchParams();
-    q.set("search_term", data.search_term);
-    if (data.location) q.set("location", data.location);
-    if (data.salary_min !== undefined) q.set("salary_min", String(data.salary_min));
-    if (data.remote_only !== undefined) q.set("remote_only", String(data.remote_only));
-    if (data.results_wanted !== undefined) q.set("results_wanted", String(data.results_wanted));
-      (data.sites ?? []).forEach((s) => q.append("sites", s));
-    return `${API_BASE}/scrape/stream?${q.toString()}`;
-},
-
-  // Scheduler
-  scheduler: () => req<SchedulerStatus>("/scheduler"),
-  schedulerRunNow: () => req<{ message: string }>("/scheduler/run", { method: "POST" }),
-  schedulerToggle: (enabled: boolean) =>
-    req<SchedulerStatus>(`/scheduler?enabled=${enabled}`, { method: "PATCH" }),
-  schedulerRunStreamUrl: () => `${API_BASE}/scheduler/run/stream`,
-  
-  // Export
-  exportUrl: () => `${API_BASE}/export/xlsx`,
-
-  // Dedup
-  dedup: () => req<{ message: string; deleted: number; remaining: number }>("/dedup", { method: "POST" }),
-
-  // Resume
-  resumeStatus: () => req<ResumeStatus>("/resume"),
-  uploadResume: async (file: File) => {
-    const formData = new FormData();
-    formData.append("file", file);
-    const res = await fetch(`${API_BASE}/resume`, { method: "POST", body: formData });
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-    return res.json() as Promise<{ message: string; characters_extracted: number }>;
-  },
-
-  rescore: () =>
-    req<{ message: string; scored: number; errors: number; total: number }>("/rescore", { method: "POST" }),
+  notes?: string | null;
+  status?: JobStatus;
+  job_description?: string | null;
+  job_url?: string | null;
 };
 
-export const STATUS_LABELS: Record<JobStatus, string> = {
-  found: "Found",
-  applied: "Applied",
-  interview: "Interview",
-  offer: "Offer",
-  rejected: "Rejected",
-  skipped: "Skipped",
+export interface ExtractResult {
+  company: string | null;
+  role: string | null;
+  location: string | null;
+  salary_min: number | null;
+  salary_max: number | null;
+}
+
+export interface ResumeInfo {
+  exists: boolean;
+  characters: number;
+  updated_at: string | null;
+  text: string | null;
+}
+
+export interface Stats {
+  total: number;
+  by_status: Record<JobStatus, number>;
+  applied_this_week: number;
+  weekly_goal: number;
+  follow_up_after_days: number;
+  response_rate: number | null;
+  follow_ups: {
+    id: number;
+    company: string;
+    role: string;
+    date_applied: string | null;
+    days_waiting: number;
+  }[];
+  weekly_activity: { week_start: string; applied: number }[];
+}
+
+export interface Settings {
+  weekly_goal: number;
+  follow_up_after_days: number;
+}
+
+export interface Health {
+  status: string;
+  ai: { reachable: boolean; model: string; model_available: boolean };
+}
+
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+/** Turn a FastAPI error body into one readable sentence. */
+export async function readError(res: Response): Promise<ApiError> {
+  let message = `${res.status} ${res.statusText}`;
+  try {
+    const body = await res.json();
+    if (typeof body.detail === "string") message = body.detail;
+    else if (Array.isArray(body.detail))
+      message = body.detail
+        .map((d: { loc?: string[]; msg: string }) =>
+          `${d.loc?.slice(-1)[0] ?? ""}: ${d.msg}`.replace(/^: /, ""),
+        )
+        .join("; ");
+  } catch {
+    /* not JSON */
+  }
+  return new ApiError(res.status, message);
+}
+
+async function req<T>(path: string, init?: RequestInit): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      ...init,
+      headers:
+        init?.body instanceof FormData
+          ? init.headers
+          : { "Content-Type": "application/json", ...init?.headers },
+    });
+  } catch {
+    throw new ApiError(0, `Can't reach the backend at ${API_BASE}. Is it running?`);
+  }
+  if (!res.ok) throw await readError(res);
+  return res.json() as Promise<T>;
+}
+
+const json = (body: unknown) => JSON.stringify(body);
+
+export const api = {
+  health: () => req<Health>("/health"),
+  stats: () => req<Stats>("/stats"),
+  settings: () => req<Settings>("/settings"),
+  updateSettings: (data: Partial<Settings>) =>
+    req<Settings>("/settings", { method: "PATCH", body: json(data) }),
+
+  jobs: (params?: { status?: JobStatus; q?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.status) q.set("status", params.status);
+    if (params?.q) q.set("q", params.q);
+    const qs = q.toString();
+    return req<Job[]>(`/jobs${qs ? `?${qs}` : ""}`);
+  },
+  job: (id: number) => req<JobDetail>(`/jobs/${id}`),
+  createJob: (data: JobInput) => req<JobDetail>("/jobs", { method: "POST", body: json(data) }),
+  updateJob: (id: number, data: Partial<JobInput>) =>
+    req<JobDetail>(`/jobs/${id}`, { method: "PATCH", body: json(data) }),
+  deleteJob: (id: number) => req<{ deleted: number }>(`/jobs/${id}`, { method: "DELETE" }),
+  duplicates: (company: string, role: string) =>
+    req<{ duplicates: Job[] }>(
+      `/jobs/duplicates?company=${encodeURIComponent(company)}&role=${encodeURIComponent(role)}`,
+    ),
+  extract: (text: string) =>
+    req<ExtractResult>("/jobs/extract", { method: "POST", body: json({ text }) }),
+
+  matchStreamUrl: (id: number) => `${API_BASE}/jobs/${id}/match/stream`,
+  cancelMatch: (id: number) =>
+    req<{ cancelled: boolean }>(`/jobs/${id}/match/cancel`, { method: "POST" }),
+  clearMatch: (id: number) => req<{ cleared: number }>(`/jobs/${id}/match`, { method: "DELETE" }),
+
+  resume: () => req<ResumeInfo>("/resume"),
+  uploadResume: (file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return req<ResumeInfo>("/resume", { method: "POST", body: fd });
+  },
+  saveResumeText: (text: string) =>
+    req<ResumeInfo>("/resume", { method: "PUT", body: json({ text }) }),
+  deleteResume: () => req<ResumeInfo>("/resume", { method: "DELETE" }),
+
+  exportUrl: (format: "csv" | "xlsx") => `${API_BASE}/export/${format}`,
 };

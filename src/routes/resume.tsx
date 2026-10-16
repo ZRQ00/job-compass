@@ -1,145 +1,167 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useRef, useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
-import { FileText, Upload, RefreshCw, Loader2, CheckCircle2, XCircle } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { CheckCircle2, Loader2, Upload, XCircle } from "lucide-react";
 import { toast } from "sonner";
+import { api, type ResumeInfo } from "@/lib/api";
+import { timeAgo } from "@/lib/jobs";
 
 export const Route = createFileRoute("/resume")({
-  head: () => ({ meta: [{ title: "Resume — Job Compass" }] }),
+  head: () => ({ meta: [{ title: "Resume · Job Compass" }] }),
   component: ResumePage,
 });
 
 function ResumePage() {
   const qc = useQueryClient();
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
-  const [previewExpanded, setPreviewExpanded] = useState(false);
+  const [text, setText] = useState("");
 
-  const { data: status, isLoading } = useQuery({
-    queryKey: ["resume"],
-    queryFn: () => api.resumeStatus(),
-  });
+  const { data: resume, isLoading } = useQuery({ queryKey: ["resume"], queryFn: api.resume });
+  const { data: health } = useQuery({ queryKey: ["health"], queryFn: api.health });
 
+  useEffect(() => setText(resume?.text ?? ""), [resume?.text]);
+
+  const onSaved = (r: ResumeInfo, msg: string) => {
+    qc.setQueryData(["resume"], r);
+    toast.success(msg);
+  };
   const upload = useMutation({
-    mutationFn: (file: File) => api.uploadResume(file),
-    onSuccess: (res) => {
-      qc.invalidateQueries({ queryKey: ["resume"] });
-      toast.success(`Resume updated — ${res.characters_extracted.toLocaleString()} characters extracted`);
-    },
+    mutationFn: api.uploadResume,
+    onSuccess: (r) => onSaved(r, `Resume uploaded · ${r.characters.toLocaleString()} characters`),
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const saveText = useMutation({
+    mutationFn: () => api.saveResumeText(text),
+    onSuccess: (r) => onSaved(r, "Resume text saved"),
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const rescore = useMutation({
-    mutationFn: () => api.rescore(),
-    onSuccess: (res) => {
-      qc.invalidateQueries({ queryKey: ["jobs"] });
-      toast.success(`Rescored ${res.scored} jobs${res.errors ? ` (${res.errors} errors)` : ""}`);
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
-  const handleFile = (file: File | null) => {
-    if (!file) return;
-    const ok = file.name.toLowerCase().endsWith(".pdf") || file.name.toLowerCase().endsWith(".txt");
-    if (!ok) {
-      toast.error("Please upload a PDF or plain text file");
-      return;
-    }
-    upload.mutate(file);
+  const handleFile = (f: File | null | undefined) => {
+    if (!f) return;
+    if (!/\.(pdf|docx|txt|md)$/i.test(f.name))
+      return toast.error("Upload a PDF, DOCX, TXT or MD file");
+    upload.mutate(f);
   };
 
+  const aiOk = health?.ai.reachable && health.ai.model_available;
+  const dirty = (resume?.text ?? "") !== text;
+
   return (
-    <div className="space-y-6 max-w-xl">
+    <div className="max-w-3xl space-y-6">
       <div>
-        <h1 className="text-4xl font-semibold tracking-tight">Resume</h1>
-        <p className="text-muted-foreground mt-1">
-          Used to score how well each job matches your background.
+        <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Resume</h1>
+        <p className="mt-1 text-muted-foreground">
+          The reasoning model compares this against each job you choose to match.
         </p>
       </div>
 
-       {/* Status */}
-      <div className="rounded-xl border border-border bg-card/40 p-5 space-y-3">
-        {isLoading ? (
-          <div className="py-4 grid place-items-center">
-            <Loader2 className="size-4 animate-spin text-muted-foreground" />
-          </div>
-        ) : (
-          <>
-            {/* ...unchanged resume/embedding status rows... */}
-            {status?.preview && (
-              <div className="mt-2 pt-3 border-t border-border">
-                <p className="text-xs text-muted-foreground mb-1">Preview</p>
-                <p
-                  className={`text-sm text-foreground/80 leading-relaxed ${
-                    previewExpanded ? "" : "line-clamp-4"
-                  }`}
-                >
-                  {status.preview}
-                </p>
-                <button
-                  onClick={() => setPreviewExpanded((v) => !v)}
-                  className="mt-1.5 text-xs font-medium text-primary hover:underline"
-                >
-                  {previewExpanded ? "Show less" : "Show more"}
-                </button>
-              </div>
-            )}
-          </>
-        )}
+      <div className="grid gap-3 sm:grid-cols-2">
+        <StatusRow
+          ok={!!resume?.exists}
+          loading={isLoading}
+          okText={`Resume on file${resume?.updated_at ? ` · updated ${timeAgo(resume.updated_at)}` : ""}`}
+          badText="No resume uploaded yet"
+        />
+        <StatusRow
+          ok={!!aiOk}
+          loading={!health}
+          okText={`AI ready · ${health?.ai.model}`}
+          badText={
+            health?.ai.reachable
+              ? `Run: ollama pull ${health.ai.model}`
+              : "Ollama offline: start it with `ollama serve`"
+          }
+        />
       </div>
 
-      {/* Upload */}
       <div
-        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragOver(true);
+        }}
         onDragLeave={() => setDragOver(false)}
         onDrop={(e) => {
           e.preventDefault();
           setDragOver(false);
-          handleFile(e.dataTransfer.files?.[0] ?? null);
+          handleFile(e.dataTransfer.files?.[0]);
         }}
-        onClick={() => fileInputRef.current?.click()}
-        className={`rounded-xl border-2 border-dashed p-8 text-center cursor-pointer transition-colors ${
+        onClick={() => fileRef.current?.click()}
+        className={`cursor-pointer rounded-xl border-2 border-dashed p-8 text-center transition-colors ${
           dragOver ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"
         }`}
       >
         <input
-          ref={fileInputRef}
+          ref={fileRef}
           type="file"
-          accept=".pdf,.txt"
+          accept=".pdf,.docx,.txt,.md"
           className="hidden"
-          onChange={(e) => handleFile(e.target.files?.[0] ?? null)}
+          onChange={(e) => handleFile(e.target.files?.[0])}
         />
         {upload.isPending ? (
-          <Loader2 className="size-6 mx-auto mb-2 animate-spin text-muted-foreground" />
+          <Loader2 className="mx-auto mb-2 size-6 animate-spin text-muted-foreground" />
         ) : (
-          <Upload className="size-6 mx-auto mb-2 text-muted-foreground" />
+          <Upload className="mx-auto mb-2 size-6 text-muted-foreground" />
         )}
         <p className="text-sm font-medium">
-          {upload.isPending ? "Uploading…" : "Drop your resume here, or click to browse"}
+          {resume?.exists ? "Replace your resume" : "Drop your resume here, or click to browse"}
         </p>
-        <p className="text-xs text-muted-foreground mt-1">PDF or plain text</p>
+        <p className="mt-1 text-xs text-muted-foreground">PDF, DOCX, TXT or Markdown</p>
       </div>
 
-      {/* Rescore */}
-      <div className="flex items-center justify-between rounded-xl border border-border bg-card/40 p-4">
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <FileText className="size-4" />
-          Updated your resume? Rescore everything already in the tracker.
-        </div>
-        <button
-          onClick={() => rescore.mutate()}
-          disabled={rescore.isPending || !status?.embedding_exists}
-          className="inline-flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg border border-border hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed transition-colors shrink-0"
-        >
-          {rescore.isPending ? (
-            <Loader2 className="size-3.5 animate-spin" />
-          ) : (
-            <RefreshCw className="size-3.5" />
-          )}
-          Rescore jobs
-        </button>
-      </div>
+      {resume?.exists && (
+        <section className="rounded-xl border border-border bg-card/40 p-5">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <div>
+              <h3 className="font-display font-semibold">Extracted text</h3>
+              <p className="text-xs text-muted-foreground">
+                This is exactly what the model reads. Fix any PDF extraction glitches here.
+              </p>
+            </div>
+            <button
+              onClick={() => saveText.mutate()}
+              disabled={!dirty || saveText.isPending || !text.trim()}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-40"
+            >
+              {saveText.isPending && <Loader2 className="size-3 animate-spin" />}
+              Save
+            </button>
+          </div>
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            rows={18}
+            className="w-full resize-y rounded-lg border border-border bg-background/50 p-3 font-mono text-xs leading-relaxed focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+        </section>
+      )}
+    </div>
+  );
+}
+
+function StatusRow({
+  ok,
+  loading,
+  okText,
+  badText,
+}: {
+  ok: boolean;
+  loading: boolean;
+  okText: string;
+  badText: string;
+}) {
+  return (
+    <div className="flex items-center gap-2 rounded-xl border border-border bg-card/40 px-4 py-3 text-sm">
+      {loading ? (
+        <Loader2 className="size-4 animate-spin text-muted-foreground" />
+      ) : ok ? (
+        <CheckCircle2 className="size-4 shrink-0 text-success" />
+      ) : (
+        <XCircle className="size-4 shrink-0 text-warning" />
+      )}
+      <span className={ok ? "" : "text-muted-foreground"}>
+        {loading ? "Checking…" : ok ? okText : badText}
+      </span>
     </div>
   );
 }

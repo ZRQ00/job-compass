@@ -11,10 +11,9 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TrackerRouteImport } from './routes/tracker'
 import { Route as ResumeRouteImport } from './routes/resume'
-import { Route as DiscoverRouteImport } from './routes/discover'
-import { Route as BrowseRouteImport } from './routes/browse'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as TrackerNewRouteImport } from './routes/tracker_.new'
+import { Route as TrackerJobIdRouteImport } from './routes/tracker_.$jobId'
 
 const TrackerRoute = TrackerRouteImport.update({
   id: '/tracker',
@@ -24,16 +23,6 @@ const TrackerRoute = TrackerRouteImport.update({
 const ResumeRoute = ResumeRouteImport.update({
   id: '/resume',
   path: '/resume',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const DiscoverRoute = DiscoverRouteImport.update({
-  id: '/discover',
-  path: '/discover',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const BrowseRoute = BrowseRouteImport.update({
-  id: '/browse',
-  path: '/browse',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -46,59 +35,53 @@ const TrackerNewRoute = TrackerNewRouteImport.update({
   path: '/tracker/new',
   getParentRoute: () => rootRouteImport,
 } as any)
+const TrackerJobIdRoute = TrackerJobIdRouteImport.update({
+  id: '/tracker_/$jobId',
+  path: '/tracker/$jobId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/browse': typeof BrowseRoute
-  '/discover': typeof DiscoverRoute
   '/resume': typeof ResumeRoute
   '/tracker': typeof TrackerRoute
+  '/tracker/$jobId': typeof TrackerJobIdRoute
   '/tracker/new': typeof TrackerNewRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/browse': typeof BrowseRoute
-  '/discover': typeof DiscoverRoute
   '/resume': typeof ResumeRoute
   '/tracker': typeof TrackerRoute
+  '/tracker/$jobId': typeof TrackerJobIdRoute
   '/tracker/new': typeof TrackerNewRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/browse': typeof BrowseRoute
-  '/discover': typeof DiscoverRoute
   '/resume': typeof ResumeRoute
   '/tracker': typeof TrackerRoute
+  '/tracker_/$jobId': typeof TrackerJobIdRoute
   '/tracker_/new': typeof TrackerNewRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths:
-    | '/'
-    | '/browse'
-    | '/discover'
-    | '/resume'
-    | '/tracker'
-    | '/tracker/new'
+  fullPaths: '/' | '/resume' | '/tracker' | '/tracker/$jobId' | '/tracker/new'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/browse' | '/discover' | '/resume' | '/tracker' | '/tracker/new'
+  to: '/' | '/resume' | '/tracker' | '/tracker/$jobId' | '/tracker/new'
   id:
     | '__root__'
     | '/'
-    | '/browse'
-    | '/discover'
     | '/resume'
     | '/tracker'
+    | '/tracker_/$jobId'
     | '/tracker_/new'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  BrowseRoute: typeof BrowseRoute
-  DiscoverRoute: typeof DiscoverRoute
   ResumeRoute: typeof ResumeRoute
   TrackerRoute: typeof TrackerRoute
+  TrackerJobIdRoute: typeof TrackerJobIdRoute
   TrackerNewRoute: typeof TrackerNewRoute
 }
 
@@ -118,20 +101,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ResumeRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/discover': {
-      id: '/discover'
-      path: '/discover'
-      fullPath: '/discover'
-      preLoaderRoute: typeof DiscoverRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/browse': {
-      id: '/browse'
-      path: '/browse'
-      fullPath: '/browse'
-      preLoaderRoute: typeof BrowseRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/': {
       id: '/'
       path: '/'
@@ -146,15 +115,21 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TrackerNewRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/tracker_/$jobId': {
+      id: '/tracker_/$jobId'
+      path: '/tracker/$jobId'
+      fullPath: '/tracker/$jobId'
+      preLoaderRoute: typeof TrackerJobIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  BrowseRoute: BrowseRoute,
-  DiscoverRoute: DiscoverRoute,
   ResumeRoute: ResumeRoute,
   TrackerRoute: TrackerRoute,
+  TrackerJobIdRoute: TrackerJobIdRoute,
   TrackerNewRoute: TrackerNewRoute,
 }
 export const routeTree = rootRouteImport

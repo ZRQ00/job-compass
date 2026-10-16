@@ -1,11 +1,11 @@
 fastapi==0.115.0
-uvicorn==0.30.0
-python-jobspy==1.1.80
+uvicorn[standard]==0.30.0
 sqlalchemy==2.0.35
-pydantic==2.9.2
-python-dotenv==1.0.1
-openpyxl==3.1.5
-aiohttp==3.10.10
-apscheduler>=3.10.0
+pydantic==2.12
 python-multipart==0.0.9
-pypdf
+openpyxl==3.1.5
+pypdf==5.1.0
+
+# tests
+pytest==8.3.3
+httpx==0.27.2

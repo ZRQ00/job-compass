@@ -31,6 +31,9 @@ dist-ssr
 *.sln
 *.sw?
 venv
+backend/data/
+.env
+# v1 leftovers
 backend/jobtracker.db
 backend/resume.txt
 backend/resume_embedding.json
@@ -39,3 +42,4 @@ backend/blacklist.json
 backend/__pycache__/
 *.pyc
 .lovable/
+.pytest_cache/
