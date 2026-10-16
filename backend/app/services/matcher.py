@@ -10,6 +10,7 @@ import json
 import re
 import threading
 from typing import Iterator
+from datetime import date
 
 from app.config import REASONING_MODEL
 from app.services import ollama
@@ -53,7 +54,16 @@ MATCH_SCHEMA = {
 
 
 def build_match_prompt(resume: str, role: str, company: str, location: str | None, description: str) -> str:
-    return f"""You are a blunt, experienced technical recruiter. Evaluate how well this candidate's resume fits the job.
+    today = date.today()
+    return f"""You are an experienced, fair technical recruiter. Evaluate how well this candidate's resume fits the job.
+
+TODAY'S DATE: {today:%B %d, %Y}. Judge every date in the resume and posting relative to this date, not your training data.
+
+How to read the resume:
+- "Present" means the role is current as of today. Compute durations from today's date.
+- An expected graduation date is when the degree finishes. If it is within about 12 months of today, the candidate is graduating soon, which is normal for entry-level and new-grad roles. Do not treat it as a gap.
+- Holding jobs while studying (research, teaching, campus IT, technical lead or developer roles at a university, internships, part-time work) is real professional experience. Count it at face value. It is not a red flag, and doing it alongside a degree is a positive signal.
+- Judge only fit for this job. Do not speculate about the candidate's salary expectations, motives, or whether they will stay.
 
 RESUME:
 {resume[:7000]}
@@ -62,13 +72,21 @@ JOB: {role} at {company}{f" ({location})" if location else ""}
 DESCRIPTION:
 {description[:7000]}
 
-Score 0-100 honestly; do not inflate. Weigh must-have skills, seniority, and domain most heavily.
+Scoring rubric (0-100, do not inflate):
+- 90-100: meets all must-haves and most nice-to-haves, with clear evidence
+- 75-89: meets all must-haves; a few nice-to-haves missing
+- 60-74: meets most must-haves; one notable gap that could be learned quickly
+- 40-59: missing several must-haves or the wrong level for the role
+- 0-39: different field or far below requirements
+Weigh must-have skills, level, and domain most heavily. For entry-level roles, projects and part-time technical work count toward experience.
+
 Return:
 - summary: 2-3 sentences, the overall verdict.
 - strengths: up to 4 specific matches between the resume and the job.
-- gaps: up to 4 specific requirements the resume doesn't show.
+- gaps: up to 4 specific requirements the resume does not show.
 - suggestions: up to 3 concrete edits to the resume (wording, bullets to surface) that would make it a better fit for THIS job. Only suggest things supported by the resume; never invent experience.
-Keep reasoning brief: a quick check of the biggest factors is enough."""
+
+Reasoning: do not restate the resume or the job. Identify the must-haves, check each against the resume, pick a rubric band, then answer."""
 
 
 def _parse_json(text: str) -> dict:
