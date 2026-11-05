@@ -53,7 +53,7 @@ def main(sqlite_path, pg_url, resume_path=None):
         with dst.cursor() as cur:
             cur.executemany(
                 "INSERT INTO boards (id, name, home, search, position, builtin, hidden) "
-                "VALUES (%s, %s, %s, %s, %s, %s::boolean, %s::boolean)", boards)
+                "VALUES (%s, %s, %s, %s, %s, %s::int::boolean, %s::int::boolean)", boards)
             cur.execute("SELECT setval(pg_get_serial_sequence('boards', 'id'), COALESCE(MAX(id), 1)) FROM boards")
     print(f"Copied {n_jobs} jobs, {n_events} events, {len(boards)} boards.")
 

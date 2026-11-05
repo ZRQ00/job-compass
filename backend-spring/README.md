@@ -98,3 +98,32 @@ labels for the AUC to mean anything.
 
   These are plain spans with timings and model names. Prompt and response text are not attached, which keeps
   your resume out of the trace store.
+
+## Step 6: resilience, CI and deploy
+
+### Ollama resilience
+- Every model call goes through a circuit breaker. After at least 4 calls with half or more failing (connection
+  errors, timeouts, HTTP 5xx), calls are paused for 20 seconds and fail immediately with a clear message,
+  instead of each request waiting out a timeout. HTTP 4xx errors (such as an unknown model) do not count.
+- Embedding calls are retried up to 3 times, 300 ms apart. Generation and chat calls are never retried
+  automatically.
+- `GET /health` now also reports `"circuit": "CLOSED" | "OPEN" | "HALF_OPEN"`.
+
+### CI and deploy
+1. Copy `ci/backend-spring.yml` to `<repo root>/.github/workflows/backend-spring.yml` and push.
+   Pull requests and pushes run `mvn verify` (including the Testcontainers tests) and a Docker build on
+   GitHub's runners.
+2. For automatic deploys, install a self-hosted runner on the server. In the GitHub repo open
+   Settings > Actions > Runners > New self-hosted runner, choose Linux, and follow the commands as your normal
+   user (not root). When running `./config.sh`, add the label `jobcompass` (`--labels jobcompass`). Then:
+
+        sudo ./svc.sh install $USER && sudo ./svc.sh start
+
+   The user needs access to Docker (`groups` should include `docker`).
+3. On every push to `main` that touches `backend-spring/`, the deploy job checks the code out into the runner's
+   workspace, runs `docker compose -p backend-spring up -d --build`, and waits for `/health`. It does not touch
+   your working copy in `~/projects/job-compass`. The database volume is reused because the project name
+   stays `backend-spring`.
+
+Security: keep the repository private, or do not enable the self-hosted runner. The deploy job only runs for
+pushes to `main`, never for pull requests, because a runner executes whatever code a workflow gives it.

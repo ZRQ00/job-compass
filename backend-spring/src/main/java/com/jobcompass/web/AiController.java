@@ -42,7 +42,7 @@ public class AiController {
 
     @GetMapping("/health")
     public Map<String, Object> health() {
-        return Map.of("status", "ok", "ai", ollama.status());
+        return Map.of("status", "ok", "ai", ollama.status(), "circuit", ollama.circuitState());
     }
 
     @PostMapping(value = "/jobs/{id}/match", produces = MediaType.TEXT_EVENT_STREAM_VALUE)

@@ -3,6 +3,7 @@ services:
     build:
       context: ./backend
     container_name: jobcompass-backend      # unique name Caddy can resolve
+    profiles: ["legacy"]
     volumes:
       - ./backend:/app
     environment:
@@ -28,8 +29,6 @@ services:
       args:
         VITE_API_URL: /jobcompass/api
     container_name: jobcompass-frontend
-    depends_on:
-      - backend
     networks:
       - default
       - caddy_net

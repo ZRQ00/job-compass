@@ -15,6 +15,12 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
+import io.github.resilience4j.retry.Retry;
+import io.github.resilience4j.retry.RetryConfig;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
 import org.springframework.stereotype.Component;
@@ -31,6 +37,24 @@ public class OllamaClient {
     private final AppProperties.Ollama cfg;
     private final ObservationRegistry observations;
 
+    // After 4+ calls with at least half failing (connection errors, timeouts, 5xx), stop calling Ollama for 20s
+    // and fail fast with a clear message instead of making the user wait on timeouts.
+    private final CircuitBreaker breaker = CircuitBreaker.of("ollama", CircuitBreakerConfig.custom()
+            .slidingWindowSize(10)
+            .minimumNumberOfCalls(4)
+            .failureRateThreshold(50)
+            .waitDurationInOpenState(Duration.ofSeconds(20))
+            .permittedNumberOfCallsInHalfOpenState(2)
+            .recordException(e -> e instanceof OllamaException oe && oe.transientFailure())
+            .build());
+
+    // Only cheap calls (embeddings) are retried; a 5 minute generation is never repeated automatically.
+    private final Retry retry = Retry.of("ollama-embed", RetryConfig.custom()
+            .maxAttempts(3)
+            .waitDuration(Duration.ofMillis(300))
+            .retryOnException(e -> e instanceof OllamaException oe && oe.transientFailure())
+            .build());
+
     public OllamaClient(ObjectMapper mapper, AppProperties props, ObservationRegistry observations) {
         this.mapper = mapper;
         this.cfg = props.ollama();
@@ -42,6 +66,20 @@ public class OllamaClient {
         return Observation.createNotStarted("llm.call", observations)
                 .lowCardinalityKeyValue("operation", operation)
                 .lowCardinalityKeyValue("model", model == null ? "unknown" : model);
+    }
+
+    private <T> T guarded(Supplier<T> call) {
+        try {
+            return CircuitBreaker.decorateSupplier(breaker, call).get();
+        } catch (CallNotPermittedException e) {
+            throw new OllamaException("Ollama keeps failing, so calls are paused for a few seconds. "
+                    + "Check that it is running, then try again.");
+        }
+    }
+
+    /** CLOSED (normal), OPEN (paused after repeated failures) or HALF_OPEN (testing recovery). */
+    public String circuitState() {
+        return breaker.getState().name();
     }
 
     public String model() {
@@ -111,27 +149,28 @@ public class OllamaClient {
 
     /** Blocking call; returns the final message content. */
     public String chat(ObjectNode payload) {
-        return observe("chat", payload.path("model").asText(null)).observe(() -> doChat(payload));
+        return observe("chat", payload.path("model").asText(null)).observe(() -> guarded(() -> doChat(payload)));
     }
 
     private String doChat(ObjectNode payload) {
         try {
             HttpResponse<String> resp = http.send(chatRequest(payload), HttpResponse.BodyHandlers.ofString());
             if (resp.statusCode() != 200) {
-                throw new OllamaException("Ollama returned HTTP " + resp.statusCode());
+                throw new OllamaException("Ollama returned HTTP " + resp.statusCode(), resp.statusCode() >= 500);
             }
             return mapper.readTree(resp.body()).path("message").path("content").asText("");
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new OllamaException("Interrupted while waiting for Ollama", e);
         } catch (IOException e) {
-            throw new OllamaException("Couldn't reach Ollama: " + e.getMessage(), e);
+            throw new OllamaException("Couldn't reach Ollama: " + e.getMessage(), e, true);
         }
     }
 
     /** Embeds one text with the configured embedding model. */
     public float[] embed(String text) {
-        return observe("embed", cfg.embedModel()).observe(() -> doEmbed(text));
+        return observe("embed", cfg.embedModel()).observe(
+                () -> Retry.decorateSupplier(retry, () -> guarded(() -> doEmbed(text))).get());
     }
 
     private float[] doEmbed(String text) {
@@ -146,7 +185,7 @@ public class OllamaClient {
             HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
             if (resp.statusCode() != 200) {
                 throw new OllamaException("Embedding failed (HTTP " + resp.statusCode() + "). Is `"
-                        + cfg.embedModel() + "` pulled?");
+                        + cfg.embedModel() + "` pulled?", resp.statusCode() >= 500);
             }
             JsonNode vec = mapper.readTree(resp.body()).path("embeddings").path(0);
             if (!vec.isArray() || vec.isEmpty()) throw new OllamaException("Ollama returned no embedding");
@@ -157,7 +196,7 @@ public class OllamaClient {
             Thread.currentThread().interrupt();
             throw new OllamaException("Interrupted while waiting for Ollama", e);
         } catch (IOException e) {
-            throw new OllamaException("Couldn't reach Ollama: " + e.getMessage(), e);
+            throw new OllamaException("Couldn't reach Ollama: " + e.getMessage(), e, true);
         }
     }
 
@@ -173,21 +212,21 @@ public class OllamaClient {
 
     /** Non-streaming chat that returns the whole assistant message (needed for tool calls). */
     public JsonNode chatMessage(ObjectNode payload) {
-        return observe("chat_tools", payload.path("model").asText(null)).observe(() -> doChatMessage(payload));
+        return observe("chat_tools", payload.path("model").asText(null)).observe(() -> guarded(() -> doChatMessage(payload)));
     }
 
     private JsonNode doChatMessage(ObjectNode payload) {
         try {
             HttpResponse<String> resp = http.send(chatRequest(payload), HttpResponse.BodyHandlers.ofString());
             if (resp.statusCode() != 200) {
-                throw new OllamaException("Ollama returned HTTP " + resp.statusCode());
+                throw new OllamaException("Ollama returned HTTP " + resp.statusCode(), resp.statusCode() >= 500);
             }
             return mapper.readTree(resp.body()).path("message");
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new OllamaException("Interrupted while waiting for Ollama", e);
         } catch (IOException e) {
-            throw new OllamaException("Couldn't reach Ollama: " + e.getMessage(), e);
+            throw new OllamaException("Couldn't reach Ollama: " + e.getMessage(), e, true);
         }
     }
 
@@ -196,7 +235,12 @@ public class OllamaClient {
      * turns true the stream is closed, which aborts generation on the Ollama side.
      */
     public void stream(ObjectNode payload, Consumer<JsonNode> onChunk, BooleanSupplier cancelled) {
-        observe("stream", payload.path("model").asText(null)).observe(() -> doStream(payload, onChunk, cancelled));
+        observe("stream", payload.path("model").asText(null)).observe(() -> {
+            guarded(() -> {
+                doStream(payload, onChunk, cancelled);
+                return null;
+            });
+        });
     }
 
     private void doStream(ObjectNode payload, Consumer<JsonNode> onChunk, BooleanSupplier cancelled) {
@@ -205,7 +249,7 @@ public class OllamaClient {
                     http.send(chatRequest(payload), HttpResponse.BodyHandlers.ofInputStream());
             if (resp.statusCode() != 200) {
                 resp.body().close();
-                throw new OllamaException("Ollama returned HTTP " + resp.statusCode());
+                throw new OllamaException("Ollama returned HTTP " + resp.statusCode(), resp.statusCode() >= 500);
             }
             try (BufferedReader r = new BufferedReader(new InputStreamReader(resp.body(), StandardCharsets.UTF_8))) {
                 String line;
@@ -217,7 +261,7 @@ public class OllamaClient {
             Thread.currentThread().interrupt();
             throw new OllamaException("Interrupted while waiting for Ollama", e);
         } catch (IOException e) {
-            if (!cancelled.getAsBoolean()) throw new OllamaException("Couldn't reach Ollama: " + e.getMessage(), e);
+            if (!cancelled.getAsBoolean()) throw new OllamaException("Couldn't reach Ollama: " + e.getMessage(), e, true);
         }
     }
 }
