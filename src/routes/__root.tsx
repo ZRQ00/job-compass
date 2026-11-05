@@ -54,7 +54,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   head: () => ({
     meta: [
       { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1" },
+      { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
+      { name: "theme-color", content: "#151a26" },
       { title: "Job Compass" },
       {
         name: "description",
@@ -96,7 +97,7 @@ function RootComponent() {
     <QueryClientProvider client={queryClient}>
       <div className="min-h-screen">
         <AppNav />
-        <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
+        <main className="mx-auto max-w-7xl px-4 py-5 pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:px-6 sm:py-8">
           <Outlet />
         </main>
       </div>

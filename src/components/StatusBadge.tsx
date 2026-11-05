@@ -37,7 +37,7 @@ export function StatusSelect({
       onChange={(e) => onChange(e.target.value as JobStatus)}
       aria-label="Status"
       className={cn(
-        "cursor-pointer appearance-none rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60",
+        "cursor-pointer appearance-none rounded-full px-2.5 py-0.5 text-xs leading-5 font-medium ring-1 ring-inset max-sm:px-2 max-sm:py-0 max-sm:leading-6 focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60",
         meta.chip,
       )}
     >

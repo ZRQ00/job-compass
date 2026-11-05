@@ -163,10 +163,10 @@ export function JobForm({
         e.preventDefault();
         if (canSubmit) onSubmit(toJobInput(v));
       }}
-      className="grid gap-6 lg:grid-cols-[1fr_1.1fr]"
+      className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_1.1fr]"
     >
       {/* Step 1: description */}
-      <section className="flex flex-col rounded-xl border border-border bg-card/40 p-5">
+      <section className="flex min-w-0 flex-col rounded-xl border border-border bg-card/40 p-4 sm:p-5">
         <div className="mb-3 flex items-center justify-between gap-3">
           <div>
             <h2 className="font-display text-base font-semibold">
@@ -232,7 +232,7 @@ export function JobForm({
       </section>
 
       {/* Step 2: details */}
-      <section className="space-y-4 rounded-xl border border-border bg-card/40 p-5">
+      <section className="min-w-0 space-y-4 rounded-xl border border-border bg-card/40 p-4 sm:p-5">
         <h2 className="font-display text-base font-semibold">
           {mode === "create" && <span className="mr-2 text-muted-foreground">2</span>}Details
         </h2>
@@ -298,7 +298,7 @@ export function JobForm({
                 onChange={(e) => set("salary_min", e.target.value)}
                 placeholder="Min"
                 inputMode="numeric"
-                className={input}
+                className={`${input} min-w-0`}
                 aria-label="Salary min"
               />
               <span className="text-muted-foreground">–</span>
@@ -307,7 +307,7 @@ export function JobForm({
                 onChange={(e) => set("salary_max", e.target.value)}
                 placeholder="Max"
                 inputMode="numeric"
-                className={input}
+                className={`${input} min-w-0`}
                 aria-label="Salary max"
               />
             </div>
@@ -365,18 +365,18 @@ export function JobForm({
           />
         </Field>
 
-        <div className="flex items-center justify-end gap-2 pt-2">
+        <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:items-center sm:justify-end">
           <button
             type="button"
             onClick={onCancel}
-            className="rounded-lg border border-border px-4 py-2 text-sm transition-colors hover:bg-accent"
+            className="rounded-lg border border-border px-4 py-2.5 text-sm transition-colors hover:bg-accent sm:py-2"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={!canSubmit}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 sm:py-2"
           >
             {pending && <Loader2 className="size-3.5 animate-spin" />}
             {submitLabel}

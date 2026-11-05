@@ -62,6 +62,7 @@ function JobPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [editing, setEditing] = useState(false);
+  const [jdOpen, setJdOpen] = useState(false);
 
   const {
     data: job,
@@ -134,9 +135,11 @@ function JobPage() {
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0">
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Building2 className="size-4" /> {job.company}
+                <Building2 className="size-4 shrink-0" /> <span className="truncate">{job.company}</span>
               </div>
-              <h1 className="mt-1 text-3xl font-semibold tracking-tight sm:text-4xl">{job.role}</h1>
+              <h1 className="mt-1 break-words text-2xl font-semibold tracking-tight sm:text-4xl">
+                {job.role}
+              </h1>
               <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm text-muted-foreground">
                 <StatusBadge status={job.status} />
                 {job.location && (
@@ -210,14 +213,33 @@ function JobPage() {
             onChange={(s) => update.mutate({ status: s })}
           />
 
-          <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
-            <section className="min-w-0 self-start rounded-xl border border-border bg-card/40 p-5">
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_380px]">
+            <section className="min-w-0 self-start rounded-xl border border-border bg-card/40 p-4 sm:p-5">
               <h3 className="mb-3 font-display font-semibold">Job description</h3>
               {job.job_description ? (
-                <JobDescription
-                  text={job.job_description}
-                  className="max-h-[70vh] overflow-y-auto pr-2"
-                />
+                <>
+                  <div
+                    className={cn(
+                      "relative",
+                      !jdOpen &&
+                        "max-h-80 overflow-hidden lg:max-h-none lg:overflow-visible",
+                    )}
+                  >
+                    <JobDescription
+                      text={job.job_description}
+                      className="lg:max-h-[70vh] lg:overflow-y-auto lg:pr-2"
+                    />
+                    {!jdOpen && (
+                      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-card to-transparent lg:hidden" />
+                    )}
+                  </div>
+                  <button
+                    onClick={() => setJdOpen((o) => !o)}
+                    className="mt-2 text-sm text-primary lg:hidden"
+                  >
+                    {jdOpen ? "Show less" : "Show full description"}
+                  </button>
+                </>
               ) : (
                 <p className="text-sm text-muted-foreground">
                   No description yet.{" "}
@@ -262,7 +284,7 @@ function PipelineStepper({
   const exited = idx === -1;
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card/30 p-3">
-      <ol className="flex flex-1 items-center gap-1">
+      <ol className="flex w-full items-center gap-1 sm:w-auto sm:flex-1">
         {FORWARD.map((s, i) => {
           const done = !exited && i < idx;
           const current = s === status;
@@ -292,14 +314,14 @@ function PipelineStepper({
           );
         })}
       </ol>
-      <div className="flex gap-1.5">
+      <div className="flex w-full gap-1.5 sm:w-auto">
         {(["rejected", "withdrawn"] as const).map((s) => (
           <button
             key={s}
             disabled={pending || status === s}
             onClick={() => onChange(s)}
             className={cn(
-              "rounded-lg border px-3 py-2 text-xs transition-colors",
+              "flex-1 rounded-lg border px-3 py-2 text-xs transition-colors sm:flex-none",
               status === s
                 ? s === "rejected"
                   ? "border-destructive/50 bg-destructive/15 text-destructive"

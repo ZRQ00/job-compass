@@ -99,6 +99,28 @@
   }
 }
 
+/* Phones: iOS Safari zooms the page into any field with text under 16px,
+   and nothing should be able to push the page wider than the screen. */
+@media (max-width: 639px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+  html,
+  body {
+    overflow-x: clip;
+  }
+}
+
+/* Hide scrollbars on horizontally swiped strips (filter chips, board columns). */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 @keyframes indeterminate {
   0% {
     left: -33%;

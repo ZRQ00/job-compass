@@ -32,7 +32,7 @@ function Dashboard() {
     <div className="space-y-8">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Dashboard</h1>
+          <h1 className="text-2xl font-semibold tracking-tight sm:text-4xl">Dashboard</h1>
           <p className="mt-1 text-muted-foreground">What needs your attention today.</p>
         </div>
         <Link
@@ -50,7 +50,7 @@ function Dashboard() {
       )}
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <Kpi
           label="This week"
           icon={Target}
@@ -135,9 +135,9 @@ function Dashboard() {
         </section>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Follow-ups */}
-        <section className="rounded-xl border border-border bg-card/40 p-5">
+        <section className="min-w-0 rounded-xl border border-border bg-card/40 p-4 sm:p-5">
           <div className="mb-1 flex items-center gap-2">
             <BellRing className="size-4 text-warning" />
             <h2 className="font-display font-semibold">Follow up</h2>
@@ -187,7 +187,7 @@ function Dashboard() {
                   </span>
                   <button
                     onClick={() => updateStatus.mutate({ id: f.id, status: "rejected" })}
-                    className="shrink-0 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:border-destructive/40 hover:text-destructive"
+                    className="shrink-0 rounded-md border border-border px-2.5 py-1.5 text-[11px] text-muted-foreground sm:px-2 sm:py-1 transition-colors hover:border-destructive/40 hover:text-destructive"
                     title="Mark as rejected / ghosted"
                   >
                     Ghosted
@@ -274,15 +274,15 @@ function Kpi({
   children?: React.ReactNode;
 }) {
   return (
-    <div className="rounded-xl border border-border bg-card p-5">
-      <div className="mb-3 flex items-center justify-between">
-        <span className="text-sm text-muted-foreground">{label}</span>
+    <div className="min-w-0 rounded-xl border border-border bg-card p-4 sm:p-5">
+      <div className="mb-3 flex items-center justify-between gap-1">
+        <span className="truncate text-sm text-muted-foreground">{label}</span>
         <span className="flex items-center gap-1">
           {action}
           <Icon className="size-4 text-muted-foreground" />
         </span>
       </div>
-      <div className="font-display text-3xl font-semibold tabular-nums">{value}</div>
+      <div className="font-display text-2xl font-semibold tabular-nums sm:text-3xl">{value}</div>
       <div className="mt-1 text-xs text-muted-foreground">{sub}</div>
       {children}
     </div>

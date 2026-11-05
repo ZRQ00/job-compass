@@ -61,7 +61,7 @@ function CaptureBookmarklet() {
     setReady(true);
   }, []);
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card/30 px-4 py-3 text-xs text-muted-foreground">
+    <div className="hidden flex-wrap items-center gap-3 rounded-xl border border-border bg-card/30 px-4 py-3 text-xs text-muted-foreground sm:flex">
       <Bookmark className="size-4 shrink-0 text-primary" />
       <span className="min-w-0 flex-1">
         <strong className="text-foreground">Capture from any job board:</strong> drag this button to
@@ -122,7 +122,7 @@ function AddJob() {
         >
           <ArrowLeft className="size-3.5" /> Back to tracker
         </Link>
-        <h1 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">Add a job</h1>
+        <h1 className="mt-3 text-2xl font-semibold tracking-tight sm:text-4xl">Add a job</h1>
         <p className="mt-1 text-muted-foreground">
           {capture
             ? `Captured${capture.title ? ` "${capture.title}"` : ""}. Check the details and save.`

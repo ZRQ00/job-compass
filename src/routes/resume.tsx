@@ -50,7 +50,7 @@ function ResumePage() {
   return (
     <div className="max-w-3xl space-y-6">
       <div>
-        <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Resume</h1>
+        <h1 className="text-2xl font-semibold tracking-tight sm:text-4xl">Resume</h1>
         <p className="mt-1 text-muted-foreground">
           The reasoning model compares this against each job you choose to match.
         </p>
@@ -104,7 +104,7 @@ function ResumePage() {
           <Upload className="mx-auto mb-2 size-6 text-muted-foreground" />
         )}
         <p className="text-sm font-medium">
-          {resume?.exists ? "Replace your resume" : "Drop your resume here, or click to browse"}
+          {resume?.exists ? "Replace your resume" : "Drop your resume here, or tap to browse"}
         </p>
         <p className="mt-1 text-xs text-muted-foreground">PDF, DOCX, TXT or Markdown</p>
       </div>

@@ -4,9 +4,14 @@ import { MapPin } from "lucide-react";
 import type { Job, JobStatus } from "@/lib/api";
 import { formatDay, formatSalary, scoreTone, STATUS_META, STATUSES } from "@/lib/jobs";
 import { useUpdateStatus } from "@/hooks/useJobMutations";
+import { StatusSelect } from "@/components/StatusBadge";
 import { cn } from "@/lib/utils";
 
-/** Kanban view of the pipeline. Drag a card to another column to change its status. */
+/**
+ * Kanban view of the pipeline. Drag a card to another column to change its status.
+ * Touch screens can't drag (HTML5 drag-and-drop is mouse-only), so there each card
+ * shows a status picker instead, and on phones the columns swipe sideways.
+ */
 export function PipelineBoard({ jobs }: { jobs: Job[] }) {
   const navigate = useNavigate();
   const update = useUpdateStatus();
@@ -14,8 +19,8 @@ export function PipelineBoard({ jobs }: { jobs: Job[] }) {
   const [over, setOver] = useState<JobStatus | null>(null);
 
   return (
-    <div className="-mx-4 overflow-x-auto px-4 pb-2 sm:-mx-6 sm:px-6">
-      <div className="grid min-w-[900px] grid-cols-5 gap-3">
+    <div className="no-scrollbar -mx-4 snap-x snap-mandatory overflow-x-auto scroll-px-4 px-4 pb-2 sm:-mx-6 sm:scroll-px-6 sm:px-6 md:snap-none">
+      <div className="flex gap-3 md:grid md:min-w-[900px] md:grid-cols-5">
         {STATUSES.map((status) => {
           const col = jobs.filter((j) => j.status === status);
           const meta = STATUS_META[status];
@@ -35,7 +40,7 @@ export function PipelineBoard({ jobs }: { jobs: Job[] }) {
                 if (job && job.status !== status) update.mutate({ id, status });
               }}
               className={cn(
-                "flex min-h-[420px] flex-col rounded-xl border border-border bg-card/30 p-2 transition-colors",
+                "flex min-h-[260px] w-[82vw] max-w-[340px] shrink-0 snap-start flex-col rounded-xl border border-border bg-card/30 p-2 transition-colors md:min-h-[420px] md:w-auto md:max-w-none",
                 over === status && "border-primary/60 bg-primary/5",
               )}
             >
@@ -97,6 +102,12 @@ export function PipelineBoard({ jobs }: { jobs: Job[] }) {
                           {job.date_applied && <span>{formatDay(job.date_applied)}</span>}
                         </div>
                       )}
+                      <div className="mt-2 hidden [@media(pointer:coarse)]:block">
+                        <StatusSelect
+                          value={job.status}
+                          onChange={(s) => update.mutate({ id: job.id, status: s })}
+                        />
+                      </div>
                     </div>
                   );
                 })}

@@ -191,21 +191,21 @@ function Tracker() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Tracker</h1>
+          <h1 className="text-2xl font-semibold tracking-tight sm:text-4xl">Tracker</h1>
           <p className="mt-1 text-muted-foreground">
             Every job you've applied to, from sent to signed.
           </p>
         </div>
         <Link
           to="/tracker/new"
-          className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+          className="hidden items-center gap-1.5 rounded-lg bg-primary px-3 py-2 sm:inline-flex text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
         >
           <Plus className="size-4" /> Add job
         </Link>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-[200px] max-w-xs flex-1">
+      <div className="flex items-center gap-2">
+        <div className="relative min-w-0 flex-1 sm:max-w-xs">
           <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <input
             value={search}
@@ -224,27 +224,29 @@ function Tracker() {
             <button
               key={v}
               onClick={() => setView(v)}
+              aria-label={`${label} view`}
               className={cn(
-                "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs transition-colors",
+                "inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-xs transition-colors sm:px-2.5 sm:py-1.5",
                 view === v
                   ? "bg-accent text-foreground"
                   : "text-muted-foreground hover:text-foreground",
               )}
             >
-              <Icon className="size-3.5" /> {label}
+              <Icon className="size-3.5" />
+              <span className="hidden sm:inline">{label}</span>
             </button>
           ))}
         </div>
       </div>
 
       {view === "table" && (
-        <div className="flex flex-wrap gap-1.5">
+        <div className="no-scrollbar -mx-4 flex gap-1.5 overflow-x-auto px-4 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
           {chips.map((c) => (
             <button
               key={c.id}
               onClick={() => setFilter(c.id)}
               className={cn(
-                "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-colors",
+                "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs transition-colors sm:py-1",
                 filter === c.id
                   ? "border-primary/50 bg-primary/15 text-foreground"
                   : "border-border text-muted-foreground hover:text-foreground",
@@ -274,7 +276,26 @@ function Tracker() {
         <PipelineBoard jobs={searched} />
       ) : (
         <>
-          <div className="overflow-x-auto rounded-xl border border-border">
+          {/* Phones: one card per job instead of a wide table */}
+          <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border md:hidden">
+            {pageRows.length === 0 ? (
+              <li className="py-12 text-center text-xs text-muted-foreground">
+                No jobs match this filter.
+              </li>
+            ) : (
+              pageRows.map((job) => (
+                <JobCardRow
+                  key={job.id}
+                  job={job}
+                  onOpen={() =>
+                    navigate({ to: "/tracker/$jobId", params: { jobId: String(job.id) } })
+                  }
+                  onStatus={(s) => updateStatus.mutate({ id: job.id, status: s })}
+                />
+              ))
+            )}
+          </ul>
+          <div className="hidden overflow-x-auto rounded-xl border border-border md:block">
             <table className="w-full min-w-[860px] text-sm">
               <thead className="border-b border-border bg-card/60">
                 <tr>
@@ -348,7 +369,7 @@ function Tracker() {
                 <button
                   disabled={page === 1}
                   onClick={() => setPage((p) => p - 1)}
-                  className="rounded px-2 py-1 hover:bg-accent disabled:opacity-30"
+                  className="rounded px-3 py-2 hover:bg-accent disabled:opacity-30 sm:px-2 sm:py-1"
                 >
                   Prev
                 </button>
@@ -358,7 +379,7 @@ function Tracker() {
                 <button
                   disabled={page === totalPages}
                   onClick={() => setPage((p) => p + 1)}
-                  className="rounded px-2 py-1 hover:bg-accent disabled:opacity-30"
+                  className="rounded px-3 py-2 hover:bg-accent disabled:opacity-30 sm:px-2 sm:py-1"
                 >
                   Next
                 </button>
@@ -368,6 +389,42 @@ function Tracker() {
         </>
       )}
     </div>
+  );
+}
+
+function JobCardRow({
+  job,
+  onOpen,
+  onStatus,
+}: {
+  job: Job;
+  onOpen: () => void;
+  onStatus: (s: JobStatus) => void;
+}) {
+  const salary = formatSalary(job.salary_min, job.salary_max);
+  const applied = formatDay(job.date_applied);
+  const meta = [job.location, salary, applied && `Applied ${applied}`].filter(Boolean);
+  return (
+    <li
+      onClick={onOpen}
+      className="flex cursor-pointer items-start gap-3 px-4 py-3 transition-colors active:bg-accent/30"
+    >
+      <div className="min-w-0 flex-1">
+        <div className="truncate font-medium">{job.company}</div>
+        <div className="line-clamp-2 text-sm text-foreground/80">{job.role}</div>
+        {meta.length > 0 && (
+          <div className="mt-1 truncate text-xs text-muted-foreground">{meta.join(" · ")}</div>
+        )}
+      </div>
+      <div className="flex shrink-0 flex-col items-end gap-2">
+        <StatusSelect value={job.status} onChange={onStatus} />
+        {job.match_score != null && (
+          <span className={cn("text-xs font-semibold tabular-nums", scoreTone(job.match_score))}>
+            {job.match_score} match
+          </span>
+        )}
+      </div>
+    </li>
   );
 }
 

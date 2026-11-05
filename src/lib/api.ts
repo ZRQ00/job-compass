@@ -98,6 +98,16 @@ export interface Health {
   ai: { reachable: boolean; model: string; model_available: boolean };
 }
 
+export interface Board {
+  id: number;
+  name: string;
+  home: string;
+  search: string | null;
+  position: number;
+  builtin: boolean;
+  hidden: boolean;
+}
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -106,6 +116,7 @@ export class ApiError extends Error {
     super(message);
   }
 }
+
 
 /** Turn a FastAPI error body into one readable sentence. */
 export async function readError(res: Response): Promise<ApiError> {
@@ -186,4 +197,12 @@ export const api = {
   deleteResume: () => req<ResumeInfo>("/resume", { method: "DELETE" }),
 
   exportUrl: (format: "csv" | "xlsx") => `${API_BASE}/export/${format}`,
+    boards: () => req<Board[]>("/boards"),
+  addBoard: (data: { name: string; url: string }) =>
+    req<Board>("/boards", { method: "POST", body: json(data) }),
+  updateBoard: (id: number, data: { name?: string; url?: string; hidden?: boolean }) =>
+    req<Board>(`/boards/${id}`, { method: "PATCH", body: json(data) }),
+  reorderBoards: (ids: number[]) =>
+    req<Board[]>("/boards/order", { method: "PUT", body: json(ids) }),
+  deleteBoard: (id: number) => req<{ deleted: number }>(`/boards/${id}`, { method: "DELETE" }),
 };
