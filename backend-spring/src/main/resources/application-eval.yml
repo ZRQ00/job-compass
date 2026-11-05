@@ -1,0 +1,4 @@
+# Used with -Dspring-boot.run.profiles=eval : no web server, just run the harness and exit.
+spring:
+  main:
+    web-application-type: none
